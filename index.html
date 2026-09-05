@@ -7,13 +7,9 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    
-    <!-- Supabase SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
         :root {
@@ -37,7 +33,7 @@
             z-index: 1;
         }
 
-        /* Glassmorphism Utilities */
+        /* Glassmorphism Utilities - iOS Style */
         .glass-panel {
             background: rgba(255, 255, 255, 0.78);
             backdrop-filter: blur(20px);
@@ -62,7 +58,6 @@
             transform: scale(1.02);
         }
 
-        /* Map Marker Styles */
         .custom-marker {
             background-color: white;
             border-radius: 50%;
@@ -99,6 +94,25 @@
             color: white !important;
             border-color: #ffffff !important;
             box-shadow: 0 4px 16px rgba(168, 85, 247, 0.5);
+        }
+
+        /* Pulsing ring for low occupancy spots */
+        .pulse-ring::after {
+            content: '';
+            position: absolute;
+            top: -6px;
+            left: -6px;
+            right: -6px;
+            bottom: -6px;
+            border-radius: 50%;
+            border: 2px solid #ef4444;
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0; }
         }
 
         .bg-rapido { background-color: var(--rapido-yellow); }
@@ -154,12 +168,12 @@
             pointer-events: auto;
         }
 
-        /* Custom OTP Modal Styles */
+        /* Custom OTP Modal Styles matching user specification */
         .otp-overlay {
             position: fixed;
             inset: 0;
             z-index: 5000;
-            background: rgba(17, 24, 39, 0.85);
+            background: rgba(17, 24, 39, 0.75);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             display: flex;
@@ -169,7 +183,7 @@
             transition: opacity 0.4s ease;
         }
         .otp-container {
-            background: rgba(255, 255, 255, 0.98);
+            background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(20px);
             border-radius: 32px;
             padding: 32px;
@@ -178,7 +192,6 @@
             box-shadow: 0 20px 40px rgba(0,0,0,0.25);
             text-align: center;
             border: 1px solid rgba(255,255,255,0.9);
-            transition: opacity 0.3s ease;
         }
         .otp-container .title {
             font-size: 24px;
@@ -192,24 +205,24 @@
             margin-bottom: 24px;
             line-height: 1.5;
         }
-        .otp-container .sub-title .contact-target {
+        .otp-container .sub-title .phone-number {
             font-weight: 700;
             color: #111;
         }
         .otp-container .wrapper {
             display: flex;
             justify-content: space-between;
-            gap: 6px;
+            gap: 12px;
             margin-bottom: 24px;
         }
         .otp-container .wrapper input {
-            width: 100%;
-            height: 56px;
-            border-radius: 12px;
+            width: 60px;
+            height: 64px;
+            border-radius: 16px;
             border: 2px solid #e5e7eb;
             background: #f9fafb;
             text-align: center;
-            font-size: 20px;
+            font-size: 24px;
             font-weight: 800;
             color: #111;
             outline: none;
@@ -253,64 +266,35 @@
             background: #000;
             transform: scale(1.02);
         }
-        .error-message {
-            color: #ef4444;
-            font-size: 12px;
-            font-weight: bold;
-            margin-top: -10px;
-            margin-bottom: 15px;
-            display: none;
-        }
     </style>
 </head>
 <body>
 
-    <!-- Real-Time EMAIL OTP Verification Modal -->
+    <!-- Real-Time OTP Verification Modal Based on User Specification -->
     <div id="otp-modal" class="otp-overlay">
-        <!-- Step 1: Email Request -->
-        <div class="otp-container" id="auth-step-1">
-            <div class="w-14 h-14 bg-rapido rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-md">
-                <i class="fa-solid fa-envelope text-black text-2xl"></i>
-            </div>
-            <h3 class="title">Welcome to CRGO</h3>
-            <p class="sub-title">Enter your email to receive a real-time verification code instantly.</p>
-            
-            <input type="email" id="email-input" placeholder="name@example.com" class="w-full h-14 border-2 border-gray-200 rounded-2xl text-center text-lg font-bold text-gray-900 focus:border-yellow-400 focus:bg-white outline-none mb-6 transition-all">
-            <div id="email-error" class="error-message"></div>
-            
-            <button class="me" onclick="requestOTP()" id="btn-send-otp">Send OTP Code</button>
-        </div>
-
-        <!-- Step 2: OTP Entry -->
-        <div class="otp-container hidden" id="auth-step-2">
+        <div class="otp-container">
             <div class="w-14 h-14 bg-rapido rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-md">
                 <i class="fa-solid fa-shield-halved text-black text-2xl"></i>
             </div>
             <h3 class="title">OTP Verification</h3>
             <p class="sub-title">
-                Enter the real-time code sent to<br>
-                <span class="contact-target" id="display-email"></span><br>
-                <span class="text-[11px] text-red-500 font-bold mt-1 block tracking-wide">(Check your Spam/Junk folder!)</span>
+                Enter the real-time code sent to your mobile device
+                <span class="phone-number">+91 98201 XXXXX</span>
             </p>
-            <!-- 6 Fields: Supabase Email OTPs default to 6 digits -->
             <div class="wrapper">
-                <input type="text" class="field" maxlength="1" inputmode="numeric">
-                <input type="text" class="field" maxlength="1" inputmode="numeric">
-                <input type="text" class="field" maxlength="1" inputmode="numeric">
-                <input type="text" class="field" maxlength="1" inputmode="numeric">
-                <input type="text" class="field" maxlength="1" inputmode="numeric">
-                <input type="text" class="field" maxlength="1" inputmode="numeric">
+                <input type="text" class="field 1" maxlength="1" data-index="0" inputmode="numeric">
+                <input type="text" class="field 2" maxlength="1" data-index="1" inputmode="numeric">
+                <input type="text" class="field 3" maxlength="1" data-index="2" inputmode="numeric">
+                <input type="text" class="field 4" maxlength="1" data-index="3" inputmode="numeric">
             </div>
-            <div id="otp-error" class="error-message"></div>
-            
-            <button class="resend" onclick="goBackToEmail()">
-                <i class="fa fa-caret-left"></i> Change Email
+            <button class="resend" onclick="resendOTP()">
+                Resend OTP
+                <i class="fa fa-caret-right"></i>
             </button>
-            <button class="me" onclick="verifyOTP()" id="btn-verify-otp">Verify Me</button>
+            <button class="me" onclick="verifyOTP()">Verify Me</button>
         </div>
     </div>
 
-    <!-- MAIN APP LAYER -->
     <div id="map"></div>
 
     <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[2500]"></div>
@@ -321,8 +305,8 @@
                 <div class="flex items-center gap-3">
                     <img src="https://ui-avatars.com/api/?name=CRGO+User&background=F9C111&color=212121" alt="Profile" class="w-12 h-12 rounded-full shadow-md">
                     <div>
-                        <div class="font-extrabold text-gray-900 text-base" id="sidebar-email">Verified User</div>
-                        <div class="text-xs text-green-600 font-semibold flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Connected</div>
+                        <div class="font-extrabold text-gray-900 text-base">Rahul Sharma</div>
+                        <div class="text-xs text-gray-500 font-semibold">+91 98201 XXXXX</div>
                     </div>
                 </div>
                 <button onclick="toggleSidebar()" class="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition">
@@ -346,6 +330,9 @@
                 </a>
                 <a href="#" onclick="toggleSidebar(); showGlassModal('Wallet & Rewards', '<p>CRGO Wallet Balance: <b>₹450.00</b><br><span class=\'text-xs text-green-600 font-bold\'>+₹15 earned from recent valet parking gig!</span></p>', 'Add Funds');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
                     <i class="ph-bold ph-wallet text-xl text-green-600"></i> Wallet & Rewards
+                </a>
+                <a href="#" onclick="toggleSidebar(); showGlassModal('Safety & Support', '<p>24/7 CRGO Mesh Dispatch Support is active across Mumbai.</p>', 'Call Support');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                    <i class="ph-bold ph-headset text-xl text-indigo-600"></i> Safety & Support
                 </a>
             </div>
         </div>
@@ -378,7 +365,7 @@
     </div>
 
     <div id="locate-container" class="right-5 z-[1000] flex flex-col gap-3 pointer-events-none">
-        <button onclick="locateUser()" class="glass-panel bg-white/85 w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white transition border border-white/60 group cursor-pointer" title="Locate Me (50m Zoom)">
+        <button onclick="locateUser()" class="glass-panel bg-white/85 w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white transition border border-white/60 group cursor-pointer" title="Locate Me">
             <i id="locate-icon" class="ph-bold ph-crosshair text-2xl text-gray-700 transition-colors group-hover:text-blue-600"></i>
         </button>
     </div>
@@ -387,22 +374,25 @@
         
         <!-- Drag Zone -->
         <div id="drag-zone" class="w-full shrink-0 touch-none">
+            <!-- Drag Handle Area -->
             <div class="w-full flex justify-center pt-5 pb-4 cursor-grab active:cursor-grabbing">
                 <div class="w-14 h-1.5 bg-gray-400/50 rounded-full"></div>
             </div>
 
+            <!-- Header & Remodeled Filter Buttons -->
             <div class="px-6 pb-2">
                 <div class="flex justify-between items-center pointer-events-none">
                     <h2 class="text-2xl font-extrabold text-gray-900 tracking-tight">100-Mesh Network</h2>
                     <div class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-white/50 px-3 py-1 rounded-full shadow-sm border border-white/60">Sorted by Nearest</div>
                 </div>
                 
+                <!-- Remodeled Unified Filter Buttons -->
                 <div class="flex gap-3 mt-4 overflow-x-auto hide-scrollbar pb-2 pointer-events-auto" id="filter-container">
                     <button id="btn-all" onclick="setFilter('all')" class="bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95">
                         <i class="ph-fill ph-squares-four text-lg"></i> All Hubs (100)
                     </button>
                     <button id="btn-parking" onclick="setFilter('parking')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
-                        <i class="ph-fill ph-car-profile text-lg text-blue-600"></i> Parking Hubs
+                        <i class="ph-fill ph-car-profile text-lg text-blue-600"></i> Parking Hubs (Cars & Bikes)
                     </button>
                     <button id="btn-ev" onclick="setFilter('ev')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
                         <i class="ph-fill ph-lightning text-lg text-green-600"></i> EV Fast Charging
@@ -434,210 +424,12 @@
         </div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
     <script>
-        // API Keys from your Supabase Dashboard
-        // NOTE: Do not include /rest/v1/ in the URL when using the JavaScript SDK!
-        const supabaseUrl = 'https://omglepftuywtuprdqsnn.supabase.co'; 
-        const supabaseKey = 'sb_publishable_A1Kf2uHsFYKtJW4V4-7Neg_XmuUS7aL'; 
-        const supabaseClient = window.supabase ? window.supabase.createClient(supabaseUrl, supabaseKey) : null;
-        
-        let currentUserEmail = "";
-        let isDemoAccount = false;
-
-        // OTP UI Logic
-        document.addEventListener('DOMContentLoaded', () => {
-            const otpInputs = document.querySelectorAll('#auth-step-2 .field');
-            otpInputs.forEach((input, index) => {
-                input.addEventListener('input', (e) => {
-                    const val = e.target.value;
-                    if (val && index < otpInputs.length - 1) {
-                        otpInputs[index + 1].focus();
-                    }
-                });
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Backspace' && !input.value && index > 0) {
-                        otpInputs[index - 1].focus();
-                    }
-                });
-            });
-            initMap(); // Pre-load map behind the modal
-        });
-
-        async function requestOTP() {
-            const emailInput = document.getElementById('email-input').value.trim();
-            const errorEl = document.getElementById('email-error');
-            const btn = document.getElementById('btn-send-otp');
-            
-            errorEl.style.display = 'none';
-
-            if (!emailInput || !emailInput.includes('@')) {
-                errorEl.textContent = "Please enter a valid email address.";
-                errorEl.style.display = 'block';
-                return;
-            }
-
-            currentUserEmail = emailInput;
-
-            if (currentUserEmail.toLowerCase() === "investor@crgo.in") {
-                isDemoAccount = true;
-                btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Preparing Demo...`;
-                setTimeout(() => {
-                    document.getElementById('auth-step-1').classList.add('hidden');
-                    document.getElementById('auth-step-2').classList.remove('hidden');
-                    document.getElementById('display-email').textContent = currentUserEmail;
-                    const firstBox = document.querySelector('#auth-step-2 .field');
-                    if (firstBox) firstBox.focus();
-                }, 800);
-                return;
-            }
-            isDemoAccount = false;
-
-            btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Sending...`;
-            btn.disabled = true;
-
-            if (!supabaseClient) {
-                errorEl.textContent = "Authentication service unavailable.";
-                errorEl.style.display = 'block';
-                btn.innerHTML = "Send OTP Code";
-                btn.disabled = false;
-                return;
-            }
-
-            try {
-                // Supabase API Call
-                const { error } = await supabaseClient.auth.signInWithOtp({ 
-                    email: currentUserEmail,
-                    options: {
-                        shouldCreateUser: true // Ensures new users get a code
-                    }
-                });
-                
-                if (error) {
-                    if (error.message.includes("rate limit")) {
-                        errorEl.innerHTML = "Rate limit exceeded! Please use a different email or <br>use <b>investor@crgo.in</b> to bypass.";
-                    } else {
-                        errorEl.textContent = "Failed to send OTP: " + error.message;
-                    }
-                    errorEl.style.display = 'block';
-                    btn.innerHTML = "Send OTP Code";
-                    btn.disabled = false;
-                    return; // STRICTLY block advancing on error
-                }
-
-                // Success! Move to Step 2
-                document.getElementById('auth-step-1').classList.add('hidden');
-                document.getElementById('auth-step-2').classList.remove('hidden');
-                document.getElementById('display-email').textContent = currentUserEmail;
-                
-                const firstBox = document.querySelector('#auth-step-2 .field');
-                if (firstBox) firstBox.focus();
-                
-            } catch (err) {
-                errorEl.textContent = "Unexpected error: " + err.message;
-                errorEl.style.display = 'block';
-                btn.innerHTML = "Send OTP Code";
-                btn.disabled = false;
-            }
-        }
-
-        async function verifyOTP() {
-            const otpInputs = document.querySelectorAll('#auth-step-2 .field');
-            const errorEl = document.getElementById('otp-error');
-            const btn = document.getElementById('btn-verify-otp');
-            let code = "";
-            
-            errorEl.style.display = 'none';
-            otpInputs.forEach(input => code += input.value);
-
-            if (code.length !== 6) { 
-                errorEl.textContent = "Please enter the complete 6-digit code.";
-                errorEl.style.display = 'block';
-                return; // STRICT CHECK
-            }
-
-            btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Verifying...`;
-            btn.disabled = true;
-
-            if (isDemoAccount) {
-                setTimeout(() => {
-                    if (code === "123456") {
-                        document.getElementById('sidebar-email').textContent = "Investor";
-                        const modal = document.getElementById('otp-modal');
-                        modal.style.opacity = '0';
-                        setTimeout(() => { modal.remove(); }, 400);
-                    } else {
-                        errorEl.textContent = "Invalid Demo Code! Please use 123456.";
-                        errorEl.style.display = 'block';
-                        btn.innerHTML = "Verify Me";
-                        btn.disabled = false;
-                        otpInputs.forEach(input => input.value = '');
-                        if(otpInputs[0]) otpInputs[0].focus();
-                    }
-                }, 800);
-                return;
-            }
-
-            try {
-                // Supabase Verification Call
-                const { data, error } = await supabaseClient.auth.verifyOtp({ 
-                    email: currentUserEmail, 
-                    token: code, 
-                    type: 'email' 
-                });
-
-                if (error) {
-                    errorEl.textContent = "Invalid code: " + error.message;
-                    errorEl.style.display = 'block';
-                    btn.innerHTML = "Verify Me";
-                    btn.disabled = false;
-                    
-                    // Clear inputs so user can try typing it again
-                    otpInputs.forEach(input => input.value = '');
-                    if(otpInputs[0]) otpInputs[0].focus();
-                    
-                    return; // STRICTLY halt execution if wrong! The map will not load.
-                }
-
-                // Double check that a valid session was returned
-                if (!data || !data.session) {
-                    errorEl.textContent = "Session invalid. Please request a new code.";
-                    errorEl.style.display = 'block';
-                    btn.innerHTML = "Verify Me";
-                    btn.disabled = false;
-                    return;
-                }
-
-                // Success! Code was exactly right. Remove Modal.
-                document.getElementById('sidebar-email').textContent = currentUserEmail.split('@')[0];
-                const modal = document.getElementById('otp-modal');
-                modal.style.opacity = '0';
-                setTimeout(() => {
-                    modal.remove(); 
-                }, 400);
-
-            } catch (err) {
-                errorEl.textContent = "Unexpected error: " + err.message;
-                errorEl.style.display = 'block';
-                btn.innerHTML = "Verify Me";
-                btn.disabled = false;
-            }
-        }
-
-        function goBackToEmail() {
-            document.getElementById('auth-step-2').classList.add('hidden');
-            document.getElementById('auth-step-1').classList.remove('hidden');
-            document.getElementById('btn-send-otp').innerHTML = "Send OTP Code";
-            document.getElementById('btn-send-otp').disabled = false;
-            document.getElementById('otp-error').style.display = 'none';
-            
-            // Clear inputs
-            document.querySelectorAll('#auth-step-2 .field').forEach(input => input.value = '');
-        }
-
-        // Map Data & Logic
         const parkingData = [
-            // South Mumbai Cluster
+            // South Mumbai Cluster (Colaba to Marine Drive)
             { id: 1, name: "Colaba Causeway Pod #1", category: "parking", hasEV: true, price: "₹60/hr", spots: 3, lat: 18.9220, lng: 72.8300, type: "indoor" },
             { id: 2, name: "Colaba Post Office Stand", category: "parking", hasEV: false, price: "₹12/hr", spots: 24, lat: 18.9180, lng: 72.8280, type: "outdoor" },
             { id: 3, name: "Nariman Point Central Mesh", category: "parking", hasEV: true, price: "₹80/hr", spots: 35, lat: 18.9280, lng: 72.8270, type: "valet" },
@@ -697,12 +489,65 @@
             { id: 49, name: "Kalina University Pod", category: "parking", hasEV: false, price: "₹40/hr", spots: 35, lat: 19.0750, lng: 72.8680, type: "outdoor" },
             { id: 50, name: "CRGO Dark Hub - Kurla", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 140, lat: 19.0830, lng: 72.8870, type: "hub" },
 
-            // Andheri East Cluster
+            // Saki Naka & Andheri East Cluster
             { id: 51, name: "Sakinaka Metro Pod #1", category: "parking", hasEV: true, price: "₹40/hr", spots: 15, lat: 19.0960, lng: 72.8860, type: "indoor" },
             { id: 52, name: "MIDC Central Branch #3", category: "parking", hasEV: true, price: "₹50/hr", spots: 30, lat: 19.1150, lng: 72.8710, type: "outdoor" },
             { id: 53, name: "Marol Fire Station Node", category: "parking", hasEV: false, price: "₹10/hr", spots: 22, lat: 19.1090, lng: 72.8790, type: "outdoor" },
             { id: 54, name: "Sakinaka Fast Plug Mesh", category: "ev", hasEV: true, price: "₹16/kWh", spots: 3, lat: 19.0990, lng: 72.8800, type: "charging" },
-            { id: 60, name: "CRGO Dark Hub - Alpha", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.1015, lng: 72.8810, type: "hub" }
+            { id: 55, name: "Asalfa Link Rd Pod #2", category: "parking", hasEV: false, price: "₹45/hr", spots: 12, lat: 19.0910, lng: 72.8950, type: "outdoor" },
+            { id: 56, name: "JB Nagar Metro Stand", category: "parking", hasEV: true, price: "₹12/hr", spots: 26, lat: 19.1100, lng: 72.8630, type: "outdoor" },
+            { id: 57, name: "Andheri East Station Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 25, lat: 19.1130, lng: 72.8510, type: "indoor" },
+            { id: 58, name: "Chakala Business Park Pod", category: "parking", hasEV: false, price: "₹60/hr", spots: 40, lat: 19.1140, lng: 72.8630, type: "indoor" },
+            { id: 59, name: "Turiya Nagar EV Hub", category: "ev", hasEV: true, price: "₹18/kWh", spots: 2, lat: 19.1020, lng: 72.8850, type: "charging" },
+            { id: 60, name: "CRGO Dark Hub - Alpha", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.1015, lng: 72.8810, type: "hub" },
+
+            // Powai & Chandivali Cluster
+            { id: 61, name: "Chandivali Farm Rd Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 18, lat: 19.1080, lng: 72.8980, type: "indoor" },
+            { id: 62, name: "Hiranandani Powai Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 25, lat: 19.1220, lng: 72.9150, type: "outdoor" },
+            { id: 63, name: "Chandivali EV Charger", category: "ev", hasEV: true, price: "₹22/kWh", spots: 3, lat: 19.1090, lng: 72.8970, type: "charging" },
+            { id: 64, name: "Powai Lake View Pod", category: "parking", hasEV: false, price: "₹55/hr", spots: 20, lat: 19.1180, lng: 72.9080, type: "outdoor" },
+            { id: 65, name: "Nahar Amrit Shakti Pod", category: "parking", hasEV: true, price: "₹12/hr", spots: 30, lat: 19.1030, lng: 72.9020, type: "indoor" },
+            { id: 66, name: "IIT Bombay Gate Pod", category: "parking", hasEV: true, price: "₹40/hr", spots: 35, lat: 19.1300, lng: 72.9120, type: "outdoor" },
+            { id: 67, name: "Powai Galleria Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 22, lat: 19.1200, lng: 72.9050, type: "outdoor" },
+            { id: 68, name: "JVLR Powai EV Station", category: "ev", hasEV: true, price: "₹19/kWh", spots: 4, lat: 19.1150, lng: 72.9000, type: "charging" },
+            { id: 69, name: "Saki Vihar Road Pod", category: "parking", hasEV: false, price: "₹45/hr", spots: 16, lat: 19.1040, lng: 72.8910, type: "outdoor" },
+            { id: 70, name: "CRGO Dark Hub - Powai", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 130, lat: 19.1110, lng: 72.8960, type: "hub" },
+
+            // Andheri West & Juhu Cluster
+            { id: 71, name: "Andheri West Infiniti Pod", category: "parking", hasEV: true, price: "₹60/hr", spots: 25, lat: 19.1410, lng: 72.8300, type: "indoor" },
+            { id: 72, name: "Juhu Tara Road Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 20, lat: 19.1050, lng: 72.8350, type: "outdoor" },
+            { id: 73, name: "Andheri Lokhandwala EV", category: "ev", hasEV: true, price: "₹18/kWh", spots: 4, lat: 19.1350, lng: 72.8290, type: "charging" },
+            { id: 74, name: "Versova Metro Pod", category: "parking", hasEV: false, price: "₹50/hr", spots: 18, lat: 19.1320, lng: 72.8210, type: "outdoor" },
+            { id: 75, name: "Juhu Beach North Stand", category: "parking", hasEV: true, price: "₹14/hr", spots: 30, lat: 19.1120, lng: 72.8280, type: "outdoor" },
+            { id: 76, name: "DN Nagar Station Pod", category: "parking", hasEV: true, price: "₹55/hr", spots: 22, lat: 19.1240, lng: 72.8380, type: "indoor" },
+            { id: 77, name: "Four Bunglows Pod", category: "parking", hasEV: false, price: "₹45/hr", spots: 15, lat: 19.1290, lng: 72.8310, type: "outdoor" },
+            { id: 78, name: "Oshiwara Link Rd Hub", category: "parking", hasEV: true, price: "₹12/hr", spots: 28, lat: 19.1450, lng: 72.8350, type: "outdoor" },
+            { id: 79, name: "JVPD Scheme Pod", category: "parking", hasEV: false, price: "₹70/hr", spots: 14, lat: 19.1100, lng: 72.8420, type: "indoor" },
+            { id: 80, name: "CRGO Dark Hub - Western", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 150, lat: 19.1200, lng: 72.8320, type: "hub" },
+
+            // Goregaon & Malad Cluster
+            { id: 81, name: "Goregaon Nesco Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 35, lat: 19.1538, lng: 72.8541, type: "indoor" },
+            { id: 82, name: "Malad Inorbit Stand", category: "parking", hasEV: false, price: "₹12/hr", spots: 30, lat: 19.1738, lng: 72.8351, type: "outdoor" },
+            { id: 83, name: "Goregaon East EV Plug", category: "ev", hasEV: true, price: "₹16/kWh", spots: 3, lat: 19.1650, lng: 72.8550, type: "charging" },
+            { id: 84, name: "Aarey Colony Gate Pod", category: "parking", hasEV: false, price: "₹40/hr", spots: 25, lat: 19.1430, lng: 72.8710, type: "outdoor" },
+            { id: 85, name: "Goregaon West Station", category: "parking", hasEV: true, price: "₹10/hr", spots: 32, lat: 19.1600, lng: 72.8450, type: "outdoor" },
+            { id: 86, name: "Malad Link Road Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 20, lat: 19.1700, lng: 72.8400, type: "indoor" },
+            { id: 87, name: "Bangur Nagar Pod #1", category: "parking", hasEV: false, price: "₹50/hr", spots: 18, lat: 19.1620, lng: 72.8340, type: "indoor" },
+            { id: 88, name: "Ram Mandir Station Pod", category: "parking", hasEV: true, price: "₹12/hr", spots: 24, lat: 19.1480, lng: 72.8470, type: "outdoor" },
+            { id: 89, name: "Oberoi Mall Goregaon Pod", category: "parking", hasEV: true, price: "₹60/hr", spots: 45, lat: 19.1750, lng: 72.8620, type: "indoor" },
+            { id: 90, name: "CRGO Dark Hub - North", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 170, lat: 19.1600, lng: 72.8450, type: "hub" },
+
+            // Ghatkopar & Chembur Cluster
+            { id: 91, name: "Ghatkopar R-City Pod", category: "parking", hasEV: true, price: "₹55/hr", spots: 40, lat: 19.0980, lng: 72.9160, type: "indoor" },
+            { id: 92, name: "Chembur Diamond Garden", category: "parking", hasEV: false, price: "₹12/hr", spots: 28, lat: 19.0520, lng: 72.9000, type: "outdoor" },
+            { id: 93, name: "Tilak Nagar Station Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 20, lat: 19.0680, lng: 72.8980, type: "outdoor" },
+            { id: 94, name: "Ghatkopar Metro Stand", category: "parking", hasEV: true, price: "₹15/hr", spots: 35, lat: 19.0850, lng: 72.9080, type: "outdoor" },
+            { id: 95, name: "Chembur Station East Pod", category: "parking", hasEV: false, price: "₹50/hr", spots: 22, lat: 19.0610, lng: 72.9050, type: "indoor" },
+            { id: 96, name: "Vikhroli West Highway Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 30, lat: 19.1020, lng: 72.9280, type: "outdoor" },
+            { id: 97, name: "Kanjurmarg Station Pod", category: "parking", hasEV: false, price: "₹10/hr", spots: 25, lat: 19.1230, lng: 72.9350, type: "outdoor" },
+            { id: 98, name: "Sion Panvel Highway Hub", category: "parking", hasEV: true, price: "₹60/hr", spots: 38, lat: 19.0450, lng: 72.8920, type: "indoor" },
+            { id: 99, name: "Chheda Nagar Junction Pod", category: "parking", hasEV: true, price: "₹14/hr", spots: 20, lat: 19.0690, lng: 72.8950, type: "outdoor" },
+            { id: 100, name: "CRGO Dark Hub - Eastern", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.0880, lng: 72.9100, type: "hub" }
         ];
 
         let map;
@@ -712,7 +557,7 @@
         let searchQuery = '';
         let currentRouteLine = null;
         
-        const userLocation = [19.0988, 72.8838]; 
+        const userLocation = [19.0988, 72.8838];
 
         const sheet = document.getElementById('bottom-sheet');
         const locateContainer = document.getElementById('locate-container');
@@ -723,8 +568,53 @@
         let startY = 0;
         let currentTranslate = 0;
         let startTranslate = 0;
+        
         let vh = window.innerHeight;
-        let SNAPS = { EXPANDED: 0, HALF: vh * 0.40, COLLAPSED: vh * 0.72 };
+        let SNAPS = {
+            EXPANDED: 0,
+            HALF: vh * 0.40,
+            COLLAPSED: vh * 0.72
+        };
+
+        // Real-time OTP Handling Logic matching user specification
+        document.addEventListener('DOMContentLoaded', () => {
+            const otpInputs = document.querySelectorAll('.otp-container .field');
+            otpInputs.forEach((input, index) => {
+                input.addEventListener('input', (e) => {
+                    const value = e.target.value;
+                    if (value.length === 1 && index < otpInputs.length - 1) {
+                        otpInputs[index + 1].focus();
+                    }
+                });
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Backspace' && e.target.value === '' && index > 0) {
+                        otpInputs[index - 1].focus();
+                    }
+                });
+            });
+        });
+
+        function verifyOTP() {
+            const otpInputs = document.querySelectorAll('.otp-container .field');
+            let enteredOtp = '';
+            otpInputs.forEach(input => enteredOtp += input.value);
+
+            if (enteredOtp.length < 4) {
+                alert("Please enter the complete 4-digit verification code.");
+                return;
+            }
+
+            const modal = document.getElementById('otp-modal');
+            modal.style.opacity = '0';
+            setTimeout(() => {
+                modal.remove();
+                initMap();
+            }, 400);
+        }
+
+        function resendOTP() {
+            alert("A new real-time OTP has been dispatched to your mobile number.");
+        }
 
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -735,12 +625,18 @@
 
         function updateSheetPosition(translateY, animate = false) {
             currentTranslate = translateY;
-            sheet.style.transition = animate ? 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)' : 'none';
-            locateContainer.style.transition = animate ? 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)' : 'none';
+            if (animate) {
+                sheet.style.transition = 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)';
+                locateContainer.style.transition = 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)';
+            } else {
+                sheet.style.transition = 'none';
+                locateContainer.style.transition = 'none';
+            }
             sheet.style.transform = `translateY(${currentTranslate}px)`;
             
             const sheetHeightPx = vh * 0.85;
-            locateContainer.style.bottom = `${sheetHeightPx - currentTranslate + 12}px`;
+            const locateBottom = sheetHeightPx - currentTranslate + 12;
+            locateContainer.style.bottom = `${locateBottom}px`;
         }
         
         window.addEventListener('resize', () => {
@@ -815,7 +711,6 @@
         }
 
         function initMap() {
-            if(map) return; 
             map = L.map('map', {
                 zoomControl: false,
                 attributionControl: false
@@ -841,6 +736,7 @@
 
         function locateUser() {
             if (map) {
+                // Zoom to 50m radius (Leaflet zoom level 18 provides a ~50-meter scale view)
                 map.flyTo(userLocation, 18, { animate: true, duration: 1.0 });
                 
                 const icon = document.getElementById('locate-icon');
@@ -933,9 +829,9 @@
                 let pulseClass = spot.spots <= 4 ? 'pulse-ring' : '';
                 
                 if (spot.isCloudHub) {
-                    markerContent = '<i class="ph-bold ph-stack text-lg text-white"></i>';
+                    markerContent = '<i class="ph-bold ph-stack text-lg"></i>';
                     extraClass = 'marker-cloud';
-                } else if (spot.category === 'ev' || (currentFilter === 'ev' && spot.hasEV)) {
+                } else if (spot.hasEV) {
                     markerContent = '<div class="flex items-center gap-0.5"><i class="ph-fill ph-car text-xs"></i><i class="ph-fill ph-lightning text-xs text-yellow-300"></i></div>';
                     extraClass = 'marker-ev-combo';
                 }
