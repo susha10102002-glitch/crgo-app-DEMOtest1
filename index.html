@@ -346,6 +346,10 @@
       Deployments can inject this before the module script. Firebase web config
       is client-visible by design; private service-account keys must never ship here.
     -->
+    <script>
+        // Explicit presentation-only build. This does not authenticate or access real accounts.
+        window.CRGO_DEMO_MODE = true;
+    </script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
@@ -399,7 +403,10 @@
         const hasValidConfig = firebaseConfig &&
             requiredConfigKeys.every((key) => typeof firebaseConfig[key] === 'string' && firebaseConfig[key].trim());
 
-        if (window.location.protocol === 'file:') {
+        if (window.CRGO_DEMO_MODE === true) {
+            document.getElementById('sidebar-name').textContent = 'Demo User';
+            window.setTimeout(() => launchApp(), 0);
+        } else if (window.location.protocol === 'file:') {
             loginBtn.disabled = true;
             loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
             showAuthError('Google Sign-In requires the app to be served from an HTTP(S) domain. Open the deployed CRGO URL instead of a local file.');
