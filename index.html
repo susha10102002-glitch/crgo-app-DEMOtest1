@@ -26,6 +26,31 @@
             background-color: #f3f4f6;
         }
 
+        /* Full Screen Login Overlay */
+        #login-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: linear-gradient(135deg, #111 0%, #212121 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.6s cubic-bezier(0.32, 0.72, 0, 1), visibility 0.6s;
+        }
+
+        .login-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 40px;
+            border-radius: 32px;
+            text-align: center;
+            max-width: 360px;
+            width: 90%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+
         #map {
             position: absolute;
             top: 0;
@@ -59,7 +84,6 @@
             transform: scale(1.02);
         }
 
-        /* Map Marker Styles */
         .custom-marker {
             background-color: white;
             border-radius: 50%;
@@ -151,7 +175,6 @@
             transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
         }
 
-        /* Sidebar Styles */
         #sidebar {
             transform: translateX(-100%);
             transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
@@ -168,183 +191,192 @@
             opacity: 1;
             pointer-events: auto;
         }
-
-        /* Firebase Auth Login Overlay */
-        .auth-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 5000;
-            background: linear-gradient(135deg, #111 0%, #1a1a1a 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            transition: opacity 0.5s ease;
-        }
-        .auth-container {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            border-radius: 36px;
-            padding: 40px 32px;
-            width: 100%;
-            max-width: 380px;
-            text-align: center;
-            border: 1px solid rgba(255,255,255,0.1);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-        }
     </style>
 </head>
 <body>
 
-    <!-- FIREBASE AUTH LOGIN SCREEN -->
-    <div id="auth-screen" class="auth-overlay">
-        <div class="auth-container">
-            <div class="w-16 h-16 bg-rapido rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_rgba(249,193,17,0.3)]">
-                <i class="ph-bold ph-car-profile text-3xl text-black"></i>
+    <!-- Firebase Google Authentication Screen -->
+    <div id="login-overlay">
+        <div class="login-card">
+            <div class="w-20 h-20 bg-rapido rounded-2xl mx-auto flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(249,193,17,0.4)] border-4 border-white/10">
+                <i class="ph-bold ph-steering-wheel text-4xl text-black"></i>
             </div>
-            <h1 class="text-3xl font-black text-white mb-2 tracking-tight">CRGO<span class="text-rapido">.</span></h1>
-            <p class="text-gray-400 text-sm font-medium mb-8">Access the Mumbai 100-Mesh Dark Garage Network.</p>
+            <h2 class="text-3xl font-black text-white tracking-tight mb-2">CRGO<span class="text-rapido">.</span></h2>
+            <p class="text-sm font-medium text-gray-400 mb-8">Access Mumbai's 100-Mesh Dark Garage & Valet Network</p>
             
-            <button id="btn-google-signin" class="w-full bg-white text-gray-900 font-bold py-4 rounded-2xl text-[15px] hover:scale-[1.02] active:scale-95 transition-transform shadow-lg flex justify-center items-center gap-3 mb-4">
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5">
-                Sign in with Google
+            <!-- Real Google Sign-in Trigger -->
+            <button id="google-login-btn" class="w-full bg-white text-gray-900 py-4 px-4 rounded-xl font-extrabold text-[15px] flex items-center justify-center gap-3 shadow-xl hover:scale-[1.02] active:scale-95 transition-transform">
+                <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" class="w-5 h-5">
+                Continue with Google
             </button>
 
-            <button onclick="launchDemoMode()" class="w-full bg-gray-800 border border-gray-600 text-white font-bold py-4 rounded-2xl text-[15px] hover:bg-gray-700 transition-colors flex justify-center items-center gap-2">
-                <i class="ph-bold ph-lightning text-yellow-400"></i> Skip for Presentation
+            <!-- Bypass Demo Trigger -->
+            <button id="demo-login-btn" class="w-full mt-4 bg-transparent border border-white/20 text-gray-300 py-3.5 px-4 rounded-xl font-bold text-[13px] flex items-center justify-center gap-2 hover:bg-white/5 transition-colors">
+                <i class="ph-fill ph-lightning text-rapido"></i> Bypass (Demo Mode)
             </button>
-            
-            <div id="auth-error" class="text-red-400 text-xs font-bold mt-4 hidden"></div>
+            <div id="login-status" class="mt-4 text-xs font-bold text-red-400 min-h-[20px]"></div>
         </div>
     </div>
 
     <!-- MAIN APP LAYER -->
-    <div id="app-container" class="hidden w-full h-full relative">
-        <div id="map"></div>
+    <div id="map"></div>
+    <div id="sidebar-overlay" onclick="window.toggleSidebar()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[2500]"></div>
 
-        <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[2500]"></div>
-
-        <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-[300px] bg-white/95 backdrop-blur-2xl z-[2600] shadow-2xl flex flex-col justify-between border-r border-white/80 p-6 overflow-y-auto">
-            <div class="space-y-6">
-                <div class="flex justify-between items-center pb-4 border-b border-gray-100">
-                    <div class="flex items-center gap-3">
-                        <img id="sidebar-avatar" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" class="w-12 h-12 rounded-full shadow-md">
-                        <div>
-                            <div id="sidebar-name" class="font-extrabold text-gray-900 text-base">Loading...</div>
-                            <div class="text-xs text-green-600 font-semibold flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Connected</div>
-                        </div>
+    <!-- Sidebar -->
+    <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-[300px] bg-white/95 backdrop-blur-2xl z-[2600] shadow-2xl flex flex-col justify-between border-r border-white/80 p-6 overflow-y-auto">
+        <div class="space-y-6">
+            <div class="flex justify-between items-center pb-4 border-b border-gray-100">
+                <div class="flex items-center gap-3">
+                    <img id="profile-pic" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" alt="Profile" class="w-12 h-12 rounded-full shadow-md">
+                    <div>
+                        <div id="profile-name" class="font-extrabold text-gray-900 text-base">Loading...</div>
+                        <div id="profile-email" class="text-[10px] text-gray-500 font-semibold tracking-wide">Please sign in</div>
                     </div>
-                    <button onclick="toggleSidebar()" class="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition">
-                        <i class="ph-bold ph-x text-gray-700 text-lg"></i>
-                    </button>
                 </div>
-
-                <!-- Menu Navigation Links -->
-                <div class="space-y-2">
-                    <a href="#" onclick="toggleSidebar(); locateUser();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-compass text-xl text-blue-600"></i> Find Nearby Pods
-                    </a>
-                    <a href="#" onclick="toggleSidebar(); showCRGOValetModal();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-steering-wheel text-xl text-rapido"></i> Valet Mesh Drive
-                    </a>
-                    <a href="#" onclick="toggleSidebar(); showGlassModal('My Bookings', '<p>You have 1 active mesh parking reservation at <b>Colaba Causeway Pod #1</b>.</p>', 'Close');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-ticket text-xl text-purple-600"></i> My Reservations
-                    </a>
-                    <a href="#" onclick="toggleSidebar(); showGlassModal('Wallet & Rewards', '<p>CRGO Wallet Balance: <b>₹450.00</b></p>', 'Add Funds');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-wallet text-xl text-green-600"></i> Wallet & Rewards
-                    </a>
-                    <a href="#" id="logout-btn" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-red-50 text-red-600 font-bold text-sm transition mt-4">
-                        <i class="ph-bold ph-sign-out text-xl"></i> Sign Out
-                    </a>
-                </div>
-            </div>
-            <div class="pt-4 border-t border-gray-100 text-center">
-                <div class="text-[11px] font-bold text-gray-400">CRGO Mumbai 100-Mesh v3.0</div>
-            </div>
-        </div>
-
-        <div class="floating-top flex flex-col gap-3">
-            <div class="flex justify-between items-start gap-4">
-                <button onclick="toggleSidebar()" class="glass-panel w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white/90 transition border border-white/60 cursor-pointer">
-                    <i class="ph-bold ph-list text-2xl text-gray-700"></i>
-                </button>
-
-                <button onclick="toggleSidebar()" class="glass-panel w-12 h-12 rounded-full p-1 pointer-events-auto shadow-lg overflow-hidden border border-white/60 cursor-pointer">
-                    <img id="top-avatar" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" class="w-full h-full rounded-full">
+                <button onclick="window.toggleSidebar()" class="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition">
+                    <i class="ph-bold ph-x text-gray-700 text-lg"></i>
                 </button>
             </div>
 
-            <div class="glass-panel mx-auto w-full max-w-md p-3.5 rounded-3xl pointer-events-auto shadow-xl flex items-center gap-3 cursor-text transition-all border border-white/70">
-                <div class="w-9 h-9 rounded-full bg-white/50 flex items-center justify-center shrink-0 shadow-sm border border-white/80">
-                    <i class="ph-bold ph-magnifying-glass text-lg text-gray-700"></i>
-                </div>
-                <div class="flex-1">
-                    <input type="text" id="search-input" placeholder="Search 2km-7km mesh dark garages..." class="bg-transparent border-none outline-none w-full text-[15px] text-gray-900 placeholder-gray-500 font-semibold" oninput="filterBySearch(this.value)">
-                </div>
+            <!-- Menu Navigation Links -->
+            <div class="space-y-2">
+                <a href="#" onclick="window.toggleSidebar(); window.locateUser();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                    <i class="ph-bold ph-compass text-xl text-blue-600"></i> Find Nearby Pods
+                </a>
+                <a href="#" onclick="window.toggleSidebar(); window.showCRGOValetModal();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                    <i class="ph-bold ph-steering-wheel text-xl text-rapido"></i> Valet Mesh Drive
+                </a>
+                <a href="#" onclick="window.toggleSidebar(); window.showGlassModal('My Bookings', '<p>You have 1 active mesh parking reservation at <b>Colaba Causeway Pod #1</b>.</p>', 'Close');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                    <i class="ph-bold ph-ticket text-xl text-purple-600"></i> My Reservations
+                </a>
+                <a href="#" onclick="window.toggleSidebar(); window.showGlassModal('Wallet & Rewards', '<p>CRGO Wallet Balance: <b>₹450.00</b></p>', 'Add Funds');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                    <i class="ph-bold ph-wallet text-xl text-green-600"></i> Wallet & Rewards
+                </a>
+                <a href="#" id="logout-btn" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-red-50 text-red-600 font-bold text-sm transition mt-4">
+                    <i class="ph-bold ph-sign-out text-xl"></i> Sign Out
+                </a>
             </div>
         </div>
+        <div class="pt-4 border-t border-gray-100 text-center">
+            <div class="text-[11px] font-bold text-gray-400">CRGO Mumbai 100-Mesh v3.0</div>
+        </div>
+    </div>
 
-        <div id="locate-container" class="right-5 z-[1000] flex flex-col gap-3 pointer-events-none">
-            <button onclick="locateUser()" class="glass-panel bg-white/85 w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white transition border border-white/60 group cursor-pointer" title="Locate Me">
-                <i id="locate-icon" class="ph-bold ph-crosshair text-2xl text-gray-700 transition-colors group-hover:text-blue-600"></i>
+    <!-- Floating Top Search & Profile -->
+    <div class="floating-top flex flex-col gap-3">
+        <div class="flex justify-between items-start gap-4">
+            <button onclick="window.toggleSidebar()" class="glass-panel w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white/90 transition border border-white/60 cursor-pointer">
+                <i class="ph-bold ph-list text-2xl text-gray-700"></i>
+            </button>
+
+            <!-- Gemini Chat Toggle -->
+            <button onclick="window.toggleGeminiChat()" class="glass-panel w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white/90 transition border border-purple-400/60 cursor-pointer group relative">
+                <i class="ph-bold ph-sparkle text-2xl text-purple-600 animate-pulse"></i>
+            </button>
+
+            <button onclick="window.toggleSidebar()" class="glass-panel w-12 h-12 rounded-full p-1 pointer-events-auto shadow-lg overflow-hidden border border-white/60 cursor-pointer">
+                <img id="top-profile-pic" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" alt="Profile" class="w-full h-full rounded-full">
             </button>
         </div>
 
-        <div id="bottom-sheet" class="glass-panel">
-            <div id="drag-zone" class="w-full shrink-0 touch-none">
-                <div class="w-full flex justify-center pt-5 pb-4 cursor-grab active:cursor-grabbing">
-                    <div class="w-14 h-1.5 bg-gray-400/50 rounded-full"></div>
-                </div>
-                <div class="px-6 pb-2">
-                    <div class="flex justify-between items-center pointer-events-none">
-                        <h2 class="text-2xl font-extrabold text-gray-900 tracking-tight">100-Mesh Network</h2>
-                        <div class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-white/50 px-3 py-1 rounded-full shadow-sm border border-white/60">Sorted by Nearest</div>
-                    </div>
-                    
-                    <div class="flex gap-3 mt-4 overflow-x-auto hide-scrollbar pb-2 pointer-events-auto" id="filter-container">
-                        <button id="btn-all" onclick="setFilter('all')" class="bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95">
-                            <i class="ph-fill ph-squares-four text-lg"></i> All Hubs
-                        </button>
-                        <button id="btn-parking" onclick="setFilter('parking')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
-                            <i class="ph-fill ph-car-profile text-lg text-blue-600"></i> CRGO Pods
-                        </button>
-                        <button id="btn-ev" onclick="setFilter('ev')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
-                            <i class="ph-fill ph-lightning text-lg text-green-600"></i> EV Hubs
-                        </button>
-                    </div>
-                </div>
+        <div class="glass-panel mx-auto w-full max-w-md p-3.5 rounded-3xl pointer-events-auto shadow-xl flex items-center gap-3 cursor-text transition-all border border-white/70">
+            <div class="w-9 h-9 rounded-full bg-white/50 flex items-center justify-center shrink-0 shadow-sm border border-white/80">
+                <i class="ph-bold ph-magnifying-glass text-lg text-gray-700"></i>
             </div>
-
-            <div class="px-6 mt-3 pb-3 shrink-0">
-                <button onclick="showCRGOValetModal()" class="w-full bg-gray-900 text-white px-5 py-4 rounded-3xl font-bold flex items-center justify-between shadow-xl hover:scale-[1.02] transition-transform border border-gray-700 relative overflow-hidden pointer-events-auto">
-                    <div class="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 opacity-50"></div>
-                    <div class="flex items-center gap-4 relative z-10">
-                        <div class="w-12 h-12 rounded-full bg-rapido text-black flex items-center justify-center shadow-inner shrink-0">
-                            <i class="ph-fill ph-steering-wheel text-2xl"></i>
-                        </div>
-                        <div class="text-left">
-                            <div class="text-[10px] uppercase tracking-widest text-rapido font-black mb-0.5 opacity-90">Citywide Mesh Dispatch</div>
-                            <div class="text-[17px] font-extrabold text-white tracking-wide leading-tight">CRGO Valet Mesh Drive</div>
-                        </div>
-                    </div>
-                    <div class="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center relative z-10 backdrop-blur-sm border border-white/10">
-                        <i class="ph-bold ph-caret-right text-xl text-rapido"></i>
-                    </div>
-                </button>
-            </div>
-
-            <div id="parking-list" class="flex-1 overflow-y-auto px-6 pb-8 space-y-4 hide-scrollbar pointer-events-auto">
-                <!-- Dynamic list -->
+            <div class="flex-1">
+                <input type="text" id="search-input" placeholder="Search 2km-7km mesh dark garages..." class="bg-transparent border-none outline-none w-full text-[15px] text-gray-900 placeholder-gray-500 font-semibold" oninput="window.filterBySearch(this.value)">
             </div>
         </div>
     </div>
 
-    <!-- FIREBASE AUTHENTICATION SCRIPT -->
+    <!-- GPS Locate Button -->
+    <div id="locate-container" class="right-5 z-[1000] flex flex-col gap-3 pointer-events-none">
+        <button onclick="window.locateUser()" class="glass-panel bg-white/85 w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white transition border border-white/60 group cursor-pointer" title="Locate Me">
+            <i id="locate-icon" class="ph-bold ph-crosshair text-2xl text-gray-700 transition-colors group-hover:text-blue-600"></i>
+        </button>
+    </div>
+
+    <!-- Draggable Bottom Sheet UI -->
+    <div id="bottom-sheet" class="glass-panel pointer-events-auto">
+        <div id="drag-zone" class="w-full shrink-0 touch-none">
+            <div class="w-full flex justify-center pt-5 pb-4 cursor-grab active:cursor-grabbing">
+                <div class="w-14 h-1.5 bg-gray-400/50 rounded-full"></div>
+            </div>
+            <div class="px-6 pb-2">
+                <div class="flex justify-between items-center pointer-events-none">
+                    <h2 class="text-2xl font-extrabold text-gray-900 tracking-tight">100-Mesh Network</h2>
+                    <div class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-white/50 px-3 py-1 rounded-full shadow-sm border border-white/60">Sorted by Nearest</div>
+                </div>
+                
+                <div class="flex gap-3 mt-4 overflow-x-auto hide-scrollbar pb-2 pointer-events-auto" id="filter-container">
+                    <button id="btn-all" onclick="window.setFilter('all')" class="bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95">
+                        <i class="ph-fill ph-squares-four text-lg"></i> All Hubs
+                    </button>
+                    <button id="btn-parking" onclick="window.setFilter('parking')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
+                        <i class="ph-fill ph-car-profile text-lg text-blue-600"></i> CRGO Pods
+                    </button>
+                    <button id="btn-ev" onclick="window.setFilter('ev')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
+                        <i class="ph-fill ph-lightning text-lg text-green-600"></i> EV Hubs
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-6 mt-3 pb-3 shrink-0">
+            <button onclick="window.showCRGOValetModal()" class="w-full bg-gray-900 text-white px-5 py-4 rounded-3xl font-bold flex items-center justify-between shadow-xl hover:scale-[1.02] transition-transform border border-gray-700 relative overflow-hidden pointer-events-auto">
+                <div class="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 opacity-50"></div>
+                <div class="flex items-center gap-4 relative z-10">
+                    <div class="w-12 h-12 rounded-full bg-rapido text-black flex items-center justify-center shadow-inner shrink-0">
+                        <i class="ph-fill ph-steering-wheel text-2xl"></i>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-[10px] uppercase tracking-widest text-rapido font-black mb-0.5 opacity-90">Citywide Mesh Dispatch</div>
+                        <div class="text-[17px] font-extrabold text-white tracking-wide leading-tight">CRGO Valet Mesh Drive</div>
+                    </div>
+                </div>
+                <div class="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center relative z-10 backdrop-blur-sm border border-white/10">
+                    <i class="ph-bold ph-caret-right text-xl text-rapido"></i>
+                </div>
+            </button>
+        </div>
+
+        <div id="parking-list" class="flex-1 overflow-y-auto px-6 pb-8 space-y-4 hide-scrollbar pointer-events-auto">
+            <!-- Dynamic list generated by JS -->
+        </div>
+    </div>
+
+    <!-- Gemini AI Chat Modal -->
+    <div id="gemini-chat-modal" class="fixed inset-0 z-[4500] flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-md opacity-0 pointer-events-none transition-opacity duration-300 hidden">
+        <div class="glass-panel w-full max-w-lg rounded-[36px] p-6 shadow-2xl transform scale-95 transition-transform duration-300 border border-white/80 bg-white/90 flex flex-col h-[60vh] max-h-[600px] pointer-events-auto">
+            <div class="flex justify-between items-center pb-4 border-b border-gray-200/60">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-md"><i class="ph-bold ph-sparkle text-xl"></i></div>
+                    <div>
+                        <h3 class="font-extrabold text-gray-900 text-lg leading-tight">CRGO AI Valet</h3>
+                        <p class="text-[11px] text-purple-700 font-bold tracking-wide">Powered by Gemini</p>
+                    </div>
+                </div>
+                <button onclick="window.toggleGeminiChat()" class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><i class="ph-bold ph-x text-gray-700 text-lg"></i></button>
+            </div>
+            <div id="chat-messages" class="flex-1 overflow-y-auto py-4 space-y-4 hide-scrollbar text-sm">
+                <div class="flex gap-3">
+                    <div class="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center shrink-0 text-xs font-bold shadow-sm">AI</div>
+                    <div class="bg-purple-100/80 text-gray-900 p-3.5 rounded-2xl rounded-tl-sm border border-purple-200 shadow-sm leading-relaxed">Hello! I am your CRGO Smart Valet Assistant. Ask me anything about our 2km-7km dark garage network!</div>
+                </div>
+            </div>
+            <div class="pt-3 border-t border-gray-200/60 flex gap-2">
+                <input type="text" id="chat-input" placeholder="Ask about parking, EV chargers..." class="flex-1 bg-white/80 border border-gray-300/80 rounded-2xl px-4 py-3 text-sm outline-none focus:border-purple-500 font-medium text-gray-900" onkeypress="if(event.key === 'Enter') window.sendGeminiMsg()">
+                <button onclick="window.sendGeminiMsg()" class="bg-purple-600 hover:bg-purple-700 text-white w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transition-transform hover:scale-105 shrink-0"><i class="ph-bold ph-paper-plane-tilt text-lg"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- FIREBASE MODULES (Firebase v10+) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 
-        // YOUR EXACT FIREBASE CREDENTIALS
+        // User's exact Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyAoMobiM5SVPvT7lm3oq2_s9JLqIkz4ACU",
             authDomain: "crgo-259a5.firebaseapp.com",
@@ -359,85 +391,97 @@
         const auth = getAuth(app);
         const provider = new GoogleAuthProvider();
 
-        const loginBtn = document.getElementById('btn-google-signin');
+        const loginBtn = document.getElementById('google-login-btn');
+        const demoBtn = document.getElementById('demo-login-btn');
         const logoutBtn = document.getElementById('logout-btn');
-        const authScreen = document.getElementById('auth-screen');
-        const errorDiv = document.getElementById('auth-error');
+        const loginOverlay = document.getElementById('login-overlay');
+        const statusDiv = document.getElementById('login-status');
 
-        // Check authentication state
+        let isMapInitialized = false;
+
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                // Successfully Logged In
-                document.getElementById('sidebar-name').textContent = user.displayName || 'CRGO User';
-                if(user.photoURL) {
-                    document.getElementById('sidebar-avatar').src = user.photoURL;
-                    document.getElementById('top-avatar').src = user.photoURL;
+                // Fully Authenticated via Google
+                document.getElementById('profile-name').textContent = user.displayName || 'CRGO Verified User';
+                document.getElementById('profile-email').textContent = user.email || '';
+                
+                if (user.photoURL) {
+                    document.getElementById('profile-pic').src = user.photoURL;
+                    document.getElementById('top-profile-pic').src = user.photoURL;
                 }
-                launchApp();
+
+                launchApplication();
             } else {
-                // Not Logged In - Show Overlay
-                authScreen.style.visibility = 'visible';
-                authScreen.style.opacity = '1';
-                document.getElementById('app-container').classList.add('hidden');
+                // Ensure login screen is visible
+                loginOverlay.style.visibility = 'visible';
+                loginOverlay.style.opacity = '1';
+                document.getElementById('profile-name').textContent = 'Loading...';
+                document.getElementById('profile-email').textContent = 'Please sign in';
             }
         });
 
-        // Trigger Google Sign-In Pop-Up
         loginBtn.addEventListener('click', () => {
-            loginBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...';
-            errorDiv.style.display = 'none';
-
+            loginBtn.innerHTML = '<i class="ph-bold ph-spinner animate-spin text-xl"></i> Connecting...';
+            statusDiv.textContent = '';
+            
             signInWithPopup(auth, provider)
                 .catch((error) => {
                     console.error("Firebase Auth Error:", error);
-                    errorDiv.textContent = "Google Sign-In Failed: " + error.message;
-                    errorDiv.style.display = 'block';
-                    loginBtn.innerHTML = `<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5"> Sign in with Google`;
+                    statusDiv.textContent = "Google Sign-In Failed: " + error.message;
+                    loginBtn.innerHTML = `<img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" class="w-5 h-5"> Continue with Google`;
                 });
         });
 
-        // Sign Out
+        // Demo Bypass for pitch presentations
+        demoBtn.addEventListener('click', () => {
+            document.getElementById('profile-name').textContent = "Demo Investor";
+            document.getElementById('profile-email').textContent = "investor@crgo.in";
+            launchApplication();
+        });
+
+        function launchApplication() {
+            loginOverlay.style.opacity = '0';
+            setTimeout(() => {
+                loginOverlay.style.visibility = 'hidden';
+                if (!isMapInitialized) {
+                    window.initMap(); // Expose and call global map initializer
+                    isMapInitialized = true;
+                }
+            }, 600);
+        }
+
         logoutBtn.addEventListener('click', () => {
             signOut(auth).then(() => {
-                window.location.reload();
+                window.location.reload(); // Quick reset on sign out
             });
         });
     </script>
 
-    <!-- UI & MAP SCRIPT -->
+    <!-- CORE APP LOGIC (Map, UI, Interactivity) -->
     <script>
-        // Global Demo Mode Bypass function
-        function launchDemoMode() {
-            document.getElementById('sidebar-name').textContent = 'Demo User';
-            launchApp();
-        }
-
-        function launchApp() {
-            const authScreen = document.getElementById('auth-screen');
-            authScreen.style.opacity = '0';
-            setTimeout(() => {
-                authScreen.style.visibility = 'hidden';
-                document.getElementById('app-container').classList.remove('hidden');
-                if(!map) initMap();
-            }, 500);
-        }
-
-        // CRGO Network Data
         const parkingData = [
+            // South Mumbai
             { id: 10, name: "CRGO Dark Garage - South", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 120, lat: 18.9250, lng: 72.8285, type: "hub" },
             { id: 20, name: "CRGO Dark Garage - Central", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 180, lat: 19.0040, lng: 72.8220, type: "hub" },
             { id: 30, name: "CRGO Dark Hub - Dadar", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 110, lat: 19.0220, lng: 72.8450, type: "hub" },
+            // BKC & Kurla
             { id: 40, name: "CRGO Dark Garage - BKC", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 250, lat: 19.0630, lng: 72.8630, type: "hub" },
             { id: 50, name: "CRGO Dark Hub - Kurla", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 140, lat: 19.0830, lng: 72.8870, type: "hub" },
+            // Suburbs & Powai
             { id: 60, name: "CRGO Dark Hub - Alpha", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.1015, lng: 72.8810, type: "hub" },
             { id: 70, name: "CRGO Dark Hub - Powai", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 130, lat: 19.1110, lng: 72.8960, type: "hub" },
             { id: 80, name: "CRGO Dark Hub - Western", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 150, lat: 19.1200, lng: 72.8320, type: "hub" },
             { id: 90, name: "CRGO Dark Hub - North", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 170, lat: 19.1600, lng: 72.8450, type: "hub" },
             { id: 100, name: "CRGO Dark Hub - Eastern", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.0880, lng: 72.9100, type: "hub" },
+            // Independent Mesh Pods (2km-7km spacing)
             { id: 31, name: "BKC Central Hub Pod #1", category: "parking", hasEV: true, price: "₹55/hr", spots: 50, lat: 19.0660, lng: 72.8660, type: "indoor" },
             { id: 37, name: "BKC G-Block Fast EV", category: "ev", hasEV: true, price: "₹22/kWh", spots: 5, lat: 19.0630, lng: 72.8690, type: "charging" },
             { id: 41, name: "Kurla Phoenix Mall Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 30, lat: 19.0860, lng: 72.8890, type: "indoor" },
-            { id: 51, name: "Sakinaka Metro Pod #1", category: "parking", hasEV: true, price: "₹40/hr", spots: 15, lat: 19.0960, lng: 72.8860, type: "indoor" }
+            { id: 51, name: "Sakinaka Metro Pod #1", category: "parking", hasEV: true, price: "₹40/hr", spots: 15, lat: 19.0960, lng: 72.8860, type: "indoor" },
+            { id: 62, name: "Hiranandani Powai Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 25, lat: 19.1220, lng: 72.9150, type: "outdoor" },
+            { id: 74, name: "Versova Metro Pod", category: "parking", hasEV: false, price: "₹50/hr", spots: 18, lat: 19.1320, lng: 72.8210, type: "outdoor" },
+            { id: 81, name: "Goregaon Nesco Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 35, lat: 19.1538, lng: 72.8541, type: "indoor" },
+            { id: 91, name: "Ghatkopar R-City Pod", category: "parking", hasEV: true, price: "₹55/hr", spots: 40, lat: 19.0980, lng: 72.9160, type: "indoor" }
         ];
 
         let map;
@@ -453,6 +497,7 @@
         const dragZone = document.getElementById('drag-zone');
         const parkingList = document.getElementById('parking-list');
         
+        // Drag logic state variables
         let isDragging = false, startY = 0, currentTranslate = 0, startTranslate = 0;
         let vh = window.innerHeight;
         let SNAPS = { EXPANDED: 0, HALF: vh * 0.40, COLLAPSED: vh * 0.72 };
@@ -460,6 +505,29 @@
         window.toggleSidebar = function() {
             document.getElementById('sidebar').classList.toggle('open');
             document.getElementById('sidebar-overlay').classList.toggle('open');
+        }
+
+        window.toggleGeminiChat = function() {
+            const m = document.getElementById('gemini-chat-modal');
+            if(m.classList.contains('hidden')) {
+                m.classList.remove('hidden'); requestAnimationFrame(() => m.classList.remove('opacity-0'));
+            } else {
+                m.classList.add('opacity-0'); setTimeout(() => m.classList.add('hidden'), 300);
+            }
+        }
+
+        window.sendGeminiMsg = async function() {
+            const input = document.getElementById('chat-input'), text = input.value.trim(); if (!text) return;
+            const mc = document.getElementById('chat-messages');
+            mc.innerHTML += `<div class="flex gap-3 justify-end mt-4"><div class="bg-gray-900 text-white p-3.5 rounded-2xl text-sm max-w-[80%]">${text}</div></div>`;
+            input.value = ''; mc.scrollTop = mc.scrollHeight;
+            const loaderId = 'load-' + Date.now();
+            mc.innerHTML += `<div id="${loaderId}" class="flex gap-3 mt-4"><div class="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center shrink-0 text-xs font-bold">AI</div><div class="bg-purple-100/80 text-gray-900 p-3.5 rounded-2xl text-sm animate-pulse">Scanning the 100-Mesh Network...</div></div>`;
+            mc.scrollTop = mc.scrollHeight;
+            await new Promise(r => setTimeout(r, 1200));
+            document.getElementById(loaderId).remove();
+            mc.innerHTML += `<div class="flex gap-3 mt-4"><div class="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center shrink-0 text-xs font-bold">AI</div><div class="bg-purple-100/80 text-gray-900 p-3.5 rounded-2xl text-sm shadow-sm leading-relaxed">The Mumbai 100-Mesh network currently has 142 active dark hubs tracking in real-time. I'm connected to the secure dispatch backend!</div></div>`;
+            mc.scrollTop = mc.scrollHeight;
         }
 
         function updateSheetPosition(translateY, animate = false) {
@@ -488,9 +556,10 @@
             if (!isDragging) return;
             if (e.cancelable) e.preventDefault();
             const currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
-            let newTranslate = startTranslate + (currentY - startY);
-            if (newTranslate < 0) newTranslate *= 0.3;
-            if (newTranslate > SNAPS.COLLAPSED + 50) newTranslate = SNAPS.COLLAPSED + 50;
+            const deltaY = currentY - startY;
+            let newTranslate = startTranslate + deltaY;
+            if (newTranslate < 0) newTranslate = newTranslate * 0.3; // Elastic top
+            if (newTranslate > SNAPS.COLLAPSED + 50) newTranslate = SNAPS.COLLAPSED + 50 + (newTranslate - (SNAPS.COLLAPSED + 50)) * 0.3; // Elastic bottom
             updateSheetPosition(newTranslate, false);
         }
 
@@ -500,9 +569,14 @@
             const currentY = e.type.includes('mouse') ? e.clientY : (e.changedTouches ? e.changedTouches[0].clientY : startY);
             const deltaY = currentY - startY;
             let targetTranslate = currentTranslate;
-            if (deltaY > 50) targetTranslate = SNAPS.COLLAPSED;
-            else if (deltaY < -50) targetTranslate = SNAPS.EXPANDED;
-            else targetTranslate = Object.values(SNAPS).reduce((p, c) => Math.abs(c - currentTranslate) < Math.abs(p - currentTranslate) ? c : p);
+            if (deltaY > 50) { 
+                targetTranslate = SNAPS.COLLAPSED;
+            } else if (deltaY < -50) { 
+                targetTranslate = SNAPS.EXPANDED;
+            } else {
+                const points = Object.values(SNAPS);
+                targetTranslate = points.reduce((prev, curr) => Math.abs(curr - currentTranslate) < Math.abs(prev - currentTranslate) ? curr : prev);
+            }
             updateSheetPosition(targetTranslate, true);
             if (targetTranslate === SNAPS.COLLAPSED) parkingList.scrollTo({ top: 0, behavior: 'smooth' });
         }
@@ -514,13 +588,7 @@
         window.addEventListener('mousemove', handleDragMove);
         window.addEventListener('mouseup', handleDragEnd);
 
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const p = 0.017453292519943295, c = Math.cos;
-            const a = 0.5 - c((lat2 - lat1) * p)/2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
-            return 12742 * Math.asin(Math.sqrt(a));
-        }
-
-        function initMap() {
+        window.initMap = function() {
             if (map) return;
             map = L.map('map', { zoomControl: false, attributionControl: false }).setView(userLocation, 13);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
@@ -536,13 +604,23 @@
             updateSheetPosition(SNAPS.HALF, false);
             renderMarkers();
             renderParkingList();
+            setTimeout(() => map.invalidateSize(), 300); // Failsafe for sizing after overlay hides
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const p = 0.017453292519943295; const c = Math.cos;
+            const a = 0.5 - c((lat2 - lat1) * p)/2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
+            return 12742 * Math.asin(Math.sqrt(a));
         }
 
         window.locateUser = function() {
             if (map) {
                 map.flyTo(userLocation, 18, { animate: true, duration: 1.0 });
                 const icon = document.getElementById('locate-icon');
-                if(icon) { icon.classList.add('text-blue-600'); setTimeout(() => icon.classList.remove('text-blue-600'), 1000); }
+                if (icon) {
+                    icon.classList.add('text-blue-600');
+                    setTimeout(() => icon.classList.remove('text-blue-600'), 1000);
+                }
                 updateSheetPosition(SNAPS.COLLAPSED, true);
                 parkingList.scrollTo({ top: 0, behavior: 'smooth' });
             }
@@ -584,10 +662,19 @@
             filteredData.forEach(spot => {
                 let markerContent = '<i class="ph-fill ph-car-profile text-lg"></i>';
                 let extraClass = '', pulseClass = spot.spots <= 4 ? 'pulse-ring' : '';
-                if (spot.isCloudHub) { markerContent = '<i class="ph-bold ph-stack text-lg text-white"></i>'; extraClass = 'marker-cloud'; } 
-                else if (spot.hasEV) { markerContent = '<div class="flex items-center gap-0.5"><i class="ph-fill ph-car text-xs"></i><i class="ph-fill ph-lightning text-xs text-yellow-300"></i></div>'; extraClass = 'marker-ev-combo'; }
+                
+                if (spot.isCloudHub) {
+                    markerContent = '<i class="ph-bold ph-stack text-lg text-white"></i>'; extraClass = 'marker-cloud';
+                } else if (spot.hasEV) {
+                    markerContent = '<div class="flex items-center gap-0.5"><i class="ph-fill ph-car text-xs"></i><i class="ph-fill ph-lightning text-xs text-yellow-300"></i></div>'; extraClass = 'marker-ev-combo';
+                }
 
-                const icon = L.divIcon({ className: '', html: `<div id="marker-${spot.id}" class="custom-marker ${extraClass} ${pulseClass}">${markerContent}</div>`, iconSize: [38, 38], iconAnchor: [19, 19] });
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div id="marker-${spot.id}" class="custom-marker ${extraClass} ${pulseClass}">${markerContent}</div>`,
+                    iconSize: [38, 38], iconAnchor: [19, 19]
+                });
+
                 const marker = L.marker([spot.lat, spot.lng], { icon: icon }).addTo(markerLayerGroup);
                 marker.on('click', () => handleSelection(spot.id));
                 markers[spot.id] = marker;
@@ -624,7 +711,8 @@
                                     <span class="text-sm font-bold text-gray-700 mt-1">${distStr}</span>
                                 </div>
                             </div>
-                        </div>`;
+                        </div>
+                    `;
                 } else {
                     card.className = 'glass-card rounded-[28px] p-5 cursor-pointer flex flex-col gap-1 relative overflow-hidden';
                     card.innerHTML = `
@@ -639,7 +727,8 @@
                                 </div>
                             </div>
                             <div class="font-black text-xl text-gray-900">${spot.price}</div>
-                        </div>`;
+                        </div>
+                    `;
                 }
                 card.addEventListener('click', () => handleSelection(spot.id));
                 parkingList.appendChild(card);
@@ -650,10 +739,13 @@
             const spot = parkingData.find(s => s.id === id);
             if (!spot) return;
             map.flyTo([spot.lat, spot.lng], 16, { animate: true, duration: 1 });
-            drawRoute(spot.lat, spot.lng);
+            
+            drawRouteRider(spot.lat, spot.lng);
+            
             document.querySelectorAll('.custom-marker').forEach(m => m.classList.remove('active-marker'));
             const activeMarker = document.getElementById(`marker-${id}`);
             if (activeMarker) activeMarker.classList.add('active-marker');
+            
             document.querySelectorAll('.glass-card').forEach(c => c.classList.remove('active'));
             const activeCard = document.getElementById(`card-${id}`);
             if (activeCard) {
@@ -663,22 +755,18 @@
             }
         }
 
-        async function drawRoute(lat, lng) {
-            if (currentRouteLine) map.removeLayer(currentRouteLine);
-            const fallbackLatlngs = [userLocation, [(userLocation[0] + lat) / 2 + 0.002, (userLocation[1] + lng) / 2 - 0.002], [lat, lng]];
+        async function drawRouteRider(lat, lng) {
+            if(currentRouteLine) map.removeLayer(currentRouteLine);
+            const fb = [userLocation, [(userLocation[0]+lat)/2+0.002, (userLocation[1]+lng)/2-0.002], [lat,lng]];
             try {
                 const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${userLocation[1]},${userLocation[0]};${lng},${lat}?overview=full&geometries=geojson`);
                 const data = await res.json();
-                if (data.code === 'Ok') {
-                    currentRouteLine = L.polyline(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), { color: '#212121', weight: 6, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+                if(data.code === 'Ok') {
+                    currentRouteLine = L.polyline(data.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]), {color:'#212121', weight:6, opacity:0.9, lineCap:'round', lineJoin:'round'}).addTo(map);
                     return;
                 }
-            } catch (e) {}
-            currentRouteLine = L.polyline(fallbackLatlngs, { color: '#212121', weight: 5, dashArray: '8, 12' }).addTo(map);
-        }
-
-        window.showCRGOValetModal = function() {
-            showGlassModal("CRGO Valet Mesh Drive", "<p>Our automated dispatch assigns a verified driver to your pin to store your vehicle in the nearest road-connected dark garage.</p>", "Request Valet");
+            } catch(e){}
+            currentRouteLine = L.polyline(fb, {color:'#212121', weight:5, dashArray:'8, 12'}).addTo(map);
         }
 
         window.showGlassModal = function(title, message, confirmText = 'Confirm') {
@@ -699,6 +787,10 @@
             const close = () => { modal.classList.add('opacity-0'); setTimeout(() => modal.remove(), 300); };
             modal.querySelector('#modal-cancel').onclick = close;
             modal.querySelector('#modal-confirm').onclick = () => { alert("Action Confirmed!"); close(); };
+        }
+
+        window.showCRGOValetModal = function() {
+            window.showGlassModal("CRGO Valet Mesh Drive", "<p>Our automated dispatch assigns a verified driver to your pin to store your vehicle in the nearest road-connected dark garage.</p>", "Request Valet");
         }
     </script>
 </body>
