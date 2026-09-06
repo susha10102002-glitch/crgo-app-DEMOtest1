@@ -216,6 +216,26 @@
         </div>
     </div>
 
+    <!-- LIVE LOCATION CONSENT -->
+    <div id="location-gate" class="fixed inset-0 z-[4500] hidden items-center justify-center px-5 bg-gray-950/60 backdrop-blur-md">
+        <div class="w-full max-w-sm rounded-[32px] bg-white/95 p-7 text-center shadow-2xl border border-white/80">
+            <div class="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-blue-600/30">
+                <i class="ph-fill ph-crosshair text-3xl text-white"></i>
+            </div>
+            <h2 class="text-2xl font-extrabold text-gray-900 tracking-tight">Enable live location</h2>
+            <p class="mt-3 text-sm leading-relaxed text-gray-600">
+                CRGO uses your device GPS to show your position, sort nearby garages, and update routes as you move.
+            </p>
+            <button id="enable-location-btn" class="w-full mt-6 bg-blue-600 text-white py-4 rounded-2xl font-extrabold shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors">
+                Enable live location
+            </button>
+            <button id="demo-location-btn" class="w-full mt-3 bg-gray-100 text-gray-800 py-3.5 rounded-2xl font-bold hover:bg-gray-200 transition-colors">
+                Use demo location instead
+            </button>
+            <p class="mt-4 text-[11px] text-gray-500">Location stays in this browser and requires permission.</p>
+        </div>
+    </div>
+
     <!-- MAIN APP LAYER -->
     <div id="app-container" class="hidden w-full h-full relative">
         <div id="map"></div>
@@ -497,7 +517,7 @@
             setTimeout(() => {
                 authScreen.style.visibility = 'hidden';
                 document.getElementById('app-container').classList.remove('hidden');
-                if(!map) initMap();
+                showLocationGate();
             }, 500);
         }
 
@@ -542,6 +562,31 @@
         let isDragging = false, startY = 0, currentTranslate = 0, startTranslate = 0;
         let vh = window.innerHeight;
         let SNAPS = { EXPANDED: 0, HALF: vh * 0.40, COLLAPSED: vh * 0.72 };
+        const locationGate = document.getElementById('location-gate');
+        const enableLocationBtn = document.getElementById('enable-location-btn');
+        const demoLocationBtn = document.getElementById('demo-location-btn');
+
+        function showLocationGate() {
+            if (map) return;
+            locationGate.classList.remove('hidden');
+            locationGate.classList.add('flex');
+        }
+
+        function hideLocationGate() {
+            locationGate.classList.add('hidden');
+            locationGate.classList.remove('flex');
+        }
+
+        enableLocationBtn.addEventListener('click', () => {
+            hideLocationGate();
+            initMap(true);
+        });
+
+        demoLocationBtn.addEventListener('click', () => {
+            hideLocationGate();
+            initMap(false);
+            showStatus('Using the CRGO demo location. Enable GPS anytime with Locate Me.', 'info');
+        });
 
         function showStatus(message, type = 'info') {
             const existing = document.getElementById('crgo-status');
@@ -688,7 +733,7 @@
             return 12742 * Math.asin(Math.sqrt(a));
         }
 
-        function initMap() {
+        function initMap(enableLiveLocation = true) {
             if (map) return;
             map = L.map('map', { zoomControl: false }).setView(userLocation, 13);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
@@ -707,7 +752,7 @@
             updateSheetPosition(SNAPS.HALF, false);
             renderMarkers();
             renderParkingList();
-            startLiveLocationTracking();
+            if (enableLiveLocation) startLiveLocationTracking(true);
         }
 
         window.locateUser = function() {
