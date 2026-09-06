@@ -7,6 +7,7 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -58,6 +59,7 @@
             transform: scale(1.02);
         }
 
+        /* Map Marker Styles */
         .custom-marker {
             background-color: white;
             border-radius: 50%;
@@ -96,7 +98,6 @@
             box-shadow: 0 4px 16px rgba(168, 85, 247, 0.5);
         }
 
-        /* Pulsing ring for low occupancy spots */
         .pulse-ring::after {
             content: '';
             position: absolute;
@@ -167,263 +168,276 @@
             opacity: 1;
             pointer-events: auto;
         }
+
+        /* Firebase Auth Login Overlay */
+        .auth-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 5000;
+            background: linear-gradient(135deg, #111 0%, #1a1a1a 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            transition: opacity 0.5s ease;
+        }
+        .auth-container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border-radius: 36px;
+            padding: 40px 32px;
+            width: 100%;
+            max-width: 380px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        }
     </style>
 </head>
 <body>
 
-    <div id="map"></div>
+    <!-- FIREBASE AUTH LOGIN SCREEN -->
+    <div id="auth-screen" class="auth-overlay">
+        <div class="auth-container">
+            <div class="w-16 h-16 bg-rapido rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_rgba(249,193,17,0.3)]">
+                <i class="ph-bold ph-car-profile text-3xl text-black"></i>
+            </div>
+            <h1 class="text-3xl font-black text-white mb-2 tracking-tight">CRGO<span class="text-rapido">.</span></h1>
+            <p class="text-gray-400 text-sm font-medium mb-8">Access the Mumbai 100-Mesh Dark Garage Network.</p>
+            
+            <button id="btn-google-signin" class="w-full bg-white text-gray-900 font-bold py-4 rounded-2xl text-[15px] hover:scale-[1.02] active:scale-95 transition-transform shadow-lg flex justify-center items-center gap-3 mb-4">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5">
+                Sign in with Google
+            </button>
 
-    <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[2500]"></div>
+            <button onclick="launchDemoMode()" class="w-full bg-gray-800 border border-gray-600 text-white font-bold py-4 rounded-2xl text-[15px] hover:bg-gray-700 transition-colors flex justify-center items-center gap-2">
+                <i class="ph-bold ph-lightning text-yellow-400"></i> Skip for Presentation
+            </button>
+            
+            <div id="auth-error" class="text-red-400 text-xs font-bold mt-4 hidden"></div>
+        </div>
+    </div>
 
-    <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-[300px] bg-white/95 backdrop-blur-2xl z-[2600] shadow-2xl flex flex-col justify-between border-r border-white/80 p-6 overflow-y-auto">
-        <div class="space-y-6">
-            <div class="flex justify-between items-center pb-4 border-b border-gray-100">
-                <div class="flex items-center gap-3">
-                    <img src="https://ui-avatars.com/api/?name=CRGO+User&background=F9C111&color=212121" alt="Profile" class="w-12 h-12 rounded-full shadow-md">
-                    <div>
-                        <div class="font-extrabold text-gray-900 text-base">Rahul Sharma</div>
-                        <div class="text-xs text-gray-500 font-semibold">+91 98201 XXXXX</div>
+    <!-- MAIN APP LAYER -->
+    <div id="app-container" class="hidden w-full h-full relative">
+        <div id="map"></div>
+
+        <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[2500]"></div>
+
+        <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-[300px] bg-white/95 backdrop-blur-2xl z-[2600] shadow-2xl flex flex-col justify-between border-r border-white/80 p-6 overflow-y-auto">
+            <div class="space-y-6">
+                <div class="flex justify-between items-center pb-4 border-b border-gray-100">
+                    <div class="flex items-center gap-3">
+                        <img id="sidebar-avatar" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" class="w-12 h-12 rounded-full shadow-md">
+                        <div>
+                            <div id="sidebar-name" class="font-extrabold text-gray-900 text-base">Loading...</div>
+                            <div class="text-xs text-green-600 font-semibold flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Connected</div>
+                        </div>
                     </div>
+                    <button onclick="toggleSidebar()" class="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition">
+                        <i class="ph-bold ph-x text-gray-700 text-lg"></i>
+                    </button>
                 </div>
-                <button onclick="toggleSidebar()" class="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition">
-                    <i class="ph-bold ph-x text-gray-700 text-lg"></i>
+
+                <!-- Menu Navigation Links -->
+                <div class="space-y-2">
+                    <a href="#" onclick="toggleSidebar(); locateUser();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                        <i class="ph-bold ph-compass text-xl text-blue-600"></i> Find Nearby Pods
+                    </a>
+                    <a href="#" onclick="toggleSidebar(); showCRGOValetModal();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                        <i class="ph-bold ph-steering-wheel text-xl text-rapido"></i> Valet Mesh Drive
+                    </a>
+                    <a href="#" onclick="toggleSidebar(); showGlassModal('My Bookings', '<p>You have 1 active mesh parking reservation at <b>Colaba Causeway Pod #1</b>.</p>', 'Close');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                        <i class="ph-bold ph-ticket text-xl text-purple-600"></i> My Reservations
+                    </a>
+                    <a href="#" onclick="toggleSidebar(); showGlassModal('Wallet & Rewards', '<p>CRGO Wallet Balance: <b>₹450.00</b></p>', 'Add Funds');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
+                        <i class="ph-bold ph-wallet text-xl text-green-600"></i> Wallet & Rewards
+                    </a>
+                    <a href="#" id="logout-btn" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-red-50 text-red-600 font-bold text-sm transition mt-4">
+                        <i class="ph-bold ph-sign-out text-xl"></i> Sign Out
+                    </a>
+                </div>
+            </div>
+            <div class="pt-4 border-t border-gray-100 text-center">
+                <div class="text-[11px] font-bold text-gray-400">CRGO Mumbai 100-Mesh v3.0</div>
+            </div>
+        </div>
+
+        <div class="floating-top flex flex-col gap-3">
+            <div class="flex justify-between items-start gap-4">
+                <button onclick="toggleSidebar()" class="glass-panel w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white/90 transition border border-white/60 cursor-pointer">
+                    <i class="ph-bold ph-list text-2xl text-gray-700"></i>
+                </button>
+
+                <button onclick="toggleSidebar()" class="glass-panel w-12 h-12 rounded-full p-1 pointer-events-auto shadow-lg overflow-hidden border border-white/60 cursor-pointer">
+                    <img id="top-avatar" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" class="w-full h-full rounded-full">
                 </button>
             </div>
 
-            <!-- Menu Navigation Links -->
-            <div class="space-y-2">
-                <a href="#" onclick="toggleSidebar(); locateUser();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                    <i class="ph-bold ph-compass text-xl text-blue-600"></i> Find Nearby Pods
-                </a>
-                <a href="#" onclick="toggleSidebar(); showCRGOValetModal();" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                    <i class="ph-bold ph-steering-wheel text-xl text-rapido"></i> Valet Mesh Drive
-                </a>
-                <a href="#" onclick="toggleSidebar(); showEarnModal();" class="flex items-center gap-3.5 p-3.5 rounded-2xl bg-rapido/20 hover:bg-rapido/30 text-gray-900 font-extrabold text-sm transition border border-rapido/40 shadow-sm">
-                    <i class="ph-fill ph-currency-inr text-xl text-yellow-600"></i> Earn more by parking cars
-                </a>
-                <a href="#" onclick="toggleSidebar(); showGlassModal('My Bookings', '<p>You have 1 active mesh parking reservation at <b>Colaba Causeway Pod #1</b>.</p>', 'Close');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                    <i class="ph-bold ph-ticket text-xl text-purple-600"></i> My Reservations
-                </a>
-                <a href="#" onclick="toggleSidebar(); showGlassModal('Wallet & Rewards', '<p>CRGO Wallet Balance: <b>₹450.00</b><br><span class=\'text-xs text-green-600 font-bold\'>+₹15 earned from recent valet parking gig!</span></p>', 'Add Funds');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                    <i class="ph-bold ph-wallet text-xl text-green-600"></i> Wallet & Rewards
-                </a>
-                <a href="#" onclick="toggleSidebar(); showGlassModal('Safety & Support', '<p>24/7 CRGO Mesh Dispatch Support is active across Mumbai.</p>', 'Call Support');" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                    <i class="ph-bold ph-headset text-xl text-indigo-600"></i> Safety & Support
-                </a>
-            </div>
-        </div>
-
-        <div class="pt-4 border-t border-gray-100 text-center">
-            <div class="text-[11px] font-bold text-gray-400">CRGO Mumbai 100-Mesh v2.5</div>
-        </div>
-    </div>
-
-    <div class="floating-top flex flex-col gap-3">
-        <div class="flex justify-between items-start gap-4">
-            <button onclick="toggleSidebar()" class="glass-panel w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white/90 transition border border-white/60 cursor-pointer">
-                <i class="ph-bold ph-list text-2xl text-gray-700"></i>
-            </button>
-
-            <button onclick="showEarnModal()" class="glass-panel w-12 h-12 rounded-full p-1 pointer-events-auto shadow-lg overflow-hidden border border-white/60 cursor-pointer" title="Profile & Earnings">
-                <img src="https://ui-avatars.com/api/?name=CRGO+User&background=F9C111&color=212121" alt="Profile" class="w-full h-full rounded-full">
-            </button>
-        </div>
-
-        <!-- iOS Glassmorphism Search Bar -->
-        <div class="glass-panel mx-auto w-full max-w-md p-3.5 rounded-3xl pointer-events-auto shadow-xl flex items-center gap-3 cursor-text transition-all border border-white/70">
-            <div class="w-9 h-9 rounded-full bg-white/50 flex items-center justify-center shrink-0 shadow-sm border border-white/80">
-                <i class="ph-bold ph-magnifying-glass text-lg text-gray-700"></i>
-            </div>
-            <div class="flex-1">
-                <input type="text" id="search-input" placeholder="Search 1km-3km mesh parking nodes..." class="bg-transparent border-none outline-none w-full text-[15px] text-gray-900 placeholder-gray-500 font-semibold" oninput="filterBySearch(this.value)">
-            </div>
-        </div>
-    </div>
-
-    <div id="locate-container" class="right-5 z-[1000] flex flex-col gap-3 pointer-events-none">
-        <button onclick="locateUser()" class="glass-panel bg-white/85 w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white transition border border-white/60 group cursor-pointer" title="Locate Me">
-            <i id="locate-icon" class="ph-bold ph-crosshair text-2xl text-gray-700 transition-colors group-hover:text-blue-600"></i>
-        </button>
-    </div>
-
-    <div id="bottom-sheet" class="glass-panel">
-        
-        <!-- Drag Zone -->
-        <div id="drag-zone" class="w-full shrink-0 touch-none">
-            <!-- Drag Handle Area -->
-            <div class="w-full flex justify-center pt-5 pb-4 cursor-grab active:cursor-grabbing">
-                <div class="w-14 h-1.5 bg-gray-400/50 rounded-full"></div>
-            </div>
-
-            <!-- Header & Remodeled Filter Buttons -->
-            <div class="px-6 pb-2">
-                <div class="flex justify-between items-center pointer-events-none">
-                    <h2 class="text-2xl font-extrabold text-gray-900 tracking-tight">100-Mesh Network</h2>
-                    <div class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-white/50 px-3 py-1 rounded-full shadow-sm border border-white/60">Sorted by Nearest</div>
+            <div class="glass-panel mx-auto w-full max-w-md p-3.5 rounded-3xl pointer-events-auto shadow-xl flex items-center gap-3 cursor-text transition-all border border-white/70">
+                <div class="w-9 h-9 rounded-full bg-white/50 flex items-center justify-center shrink-0 shadow-sm border border-white/80">
+                    <i class="ph-bold ph-magnifying-glass text-lg text-gray-700"></i>
                 </div>
-                
-                <!-- Remodeled Unified Filter Buttons -->
-                <div class="flex gap-3 mt-4 overflow-x-auto hide-scrollbar pb-2 pointer-events-auto" id="filter-container">
-                    <button id="btn-all" onclick="setFilter('all')" class="bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95">
-                        <i class="ph-fill ph-squares-four text-lg"></i> All Hubs (100)
-                    </button>
-                    <button id="btn-parking" onclick="setFilter('parking')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
-                        <i class="ph-fill ph-car-profile text-lg text-blue-600"></i> Parking Hubs (Cars & Bikes)
-                    </button>
-                    <button id="btn-ev" onclick="setFilter('ev')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
-                        <i class="ph-fill ph-lightning text-lg text-green-600"></i> EV Fast Charging
-                    </button>
+                <div class="flex-1">
+                    <input type="text" id="search-input" placeholder="Search 2km-7km mesh dark garages..." class="bg-transparent border-none outline-none w-full text-[15px] text-gray-900 placeholder-gray-500 font-semibold" oninput="filterBySearch(this.value)">
                 </div>
             </div>
         </div>
 
-        <div class="px-6 mt-3 pb-3 shrink-0">
-            <button onclick="showCRGOValetModal()" class="w-full bg-gray-900 text-white px-5 py-4 rounded-3xl font-bold flex items-center justify-between shadow-xl hover:scale-[1.02] transition-transform border border-gray-700 relative overflow-hidden pointer-events-auto">
-                <div class="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 opacity-50"></div>
-                <div class="flex items-center gap-4 relative z-10">
-                    <div class="w-12 h-12 rounded-full bg-rapido text-black flex items-center justify-center shadow-inner shrink-0">
-                        <i class="ph-fill ph-steering-wheel text-2xl"></i>
+        <div id="locate-container" class="right-5 z-[1000] flex flex-col gap-3 pointer-events-none">
+            <button onclick="locateUser()" class="glass-panel bg-white/85 w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white transition border border-white/60 group cursor-pointer" title="Locate Me">
+                <i id="locate-icon" class="ph-bold ph-crosshair text-2xl text-gray-700 transition-colors group-hover:text-blue-600"></i>
+            </button>
+        </div>
+
+        <div id="bottom-sheet" class="glass-panel">
+            <div id="drag-zone" class="w-full shrink-0 touch-none">
+                <div class="w-full flex justify-center pt-5 pb-4 cursor-grab active:cursor-grabbing">
+                    <div class="w-14 h-1.5 bg-gray-400/50 rounded-full"></div>
+                </div>
+                <div class="px-6 pb-2">
+                    <div class="flex justify-between items-center pointer-events-none">
+                        <h2 class="text-2xl font-extrabold text-gray-900 tracking-tight">100-Mesh Network</h2>
+                        <div class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-white/50 px-3 py-1 rounded-full shadow-sm border border-white/60">Sorted by Nearest</div>
                     </div>
-                    <div class="text-left">
-                        <div class="text-[10px] uppercase tracking-widest text-rapido font-black mb-0.5 opacity-90">Citywide Mesh Dispatch</div>
-                        <div class="text-[17px] font-extrabold text-white tracking-wide leading-tight">CRGO Valet Mesh Drive</div>
+                    
+                    <div class="flex gap-3 mt-4 overflow-x-auto hide-scrollbar pb-2 pointer-events-auto" id="filter-container">
+                        <button id="btn-all" onclick="setFilter('all')" class="bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95">
+                            <i class="ph-fill ph-squares-four text-lg"></i> All Hubs
+                        </button>
+                        <button id="btn-parking" onclick="setFilter('parking')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
+                            <i class="ph-fill ph-car-profile text-lg text-blue-600"></i> CRGO Pods
+                        </button>
+                        <button id="btn-ev" onclick="setFilter('ev')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95">
+                            <i class="ph-fill ph-lightning text-lg text-green-600"></i> EV Hubs
+                        </button>
                     </div>
                 </div>
-                <div class="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center relative z-10 backdrop-blur-sm border border-white/10">
-                    <i class="ph-bold ph-caret-right text-xl text-rapido"></i>
-                </div>
-            </button>
-        </div>
+            </div>
 
-        <div id="parking-list" class="flex-1 overflow-y-auto px-6 pb-8 space-y-4 hide-scrollbar pointer-events-auto">
-            <!-- 100 Nodes injected dynamically -->
+            <div class="px-6 mt-3 pb-3 shrink-0">
+                <button onclick="showCRGOValetModal()" class="w-full bg-gray-900 text-white px-5 py-4 rounded-3xl font-bold flex items-center justify-between shadow-xl hover:scale-[1.02] transition-transform border border-gray-700 relative overflow-hidden pointer-events-auto">
+                    <div class="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 opacity-50"></div>
+                    <div class="flex items-center gap-4 relative z-10">
+                        <div class="w-12 h-12 rounded-full bg-rapido text-black flex items-center justify-center shadow-inner shrink-0">
+                            <i class="ph-fill ph-steering-wheel text-2xl"></i>
+                        </div>
+                        <div class="text-left">
+                            <div class="text-[10px] uppercase tracking-widest text-rapido font-black mb-0.5 opacity-90">Citywide Mesh Dispatch</div>
+                            <div class="text-[17px] font-extrabold text-white tracking-wide leading-tight">CRGO Valet Mesh Drive</div>
+                        </div>
+                    </div>
+                    <div class="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center relative z-10 backdrop-blur-sm border border-white/10">
+                        <i class="ph-bold ph-caret-right text-xl text-rapido"></i>
+                    </div>
+                </button>
+            </div>
+
+            <div id="parking-list" class="flex-1 overflow-y-auto px-6 pb-8 space-y-4 hide-scrollbar pointer-events-auto">
+                <!-- Dynamic list -->
+            </div>
         </div>
     </div>
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
+    <!-- FIREBASE AUTHENTICATION SCRIPT -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+
+        // YOUR EXACT FIREBASE CREDENTIALS
+        const firebaseConfig = {
+            apiKey: "AIzaSyAoMobiM5SVPvT7lm3oq2_s9JLqIkz4ACU",
+            authDomain: "crgo-259a5.firebaseapp.com",
+            projectId: "crgo-259a5",
+            storageBucket: "crgo-259a5.firebasestorage.app",
+            messagingSenderId: "1009898110308",
+            appId: "1:1009898110308:web:70083e3cd8eb22b7d00e71",
+            measurementId: "G-GLYGKJF06F"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+
+        const loginBtn = document.getElementById('btn-google-signin');
+        const logoutBtn = document.getElementById('logout-btn');
+        const authScreen = document.getElementById('auth-screen');
+        const errorDiv = document.getElementById('auth-error');
+
+        // Check authentication state
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // Successfully Logged In
+                document.getElementById('sidebar-name').textContent = user.displayName || 'CRGO User';
+                if(user.photoURL) {
+                    document.getElementById('sidebar-avatar').src = user.photoURL;
+                    document.getElementById('top-avatar').src = user.photoURL;
+                }
+                launchApp();
+            } else {
+                // Not Logged In - Show Overlay
+                authScreen.style.visibility = 'visible';
+                authScreen.style.opacity = '1';
+                document.getElementById('app-container').classList.add('hidden');
+            }
+        });
+
+        // Trigger Google Sign-In Pop-Up
+        loginBtn.addEventListener('click', () => {
+            loginBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...';
+            errorDiv.style.display = 'none';
+
+            signInWithPopup(auth, provider)
+                .catch((error) => {
+                    console.error("Firebase Auth Error:", error);
+                    errorDiv.textContent = "Google Sign-In Failed: " + error.message;
+                    errorDiv.style.display = 'block';
+                    loginBtn.innerHTML = `<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5"> Sign in with Google`;
+                });
+        });
+
+        // Sign Out
+        logoutBtn.addEventListener('click', () => {
+            signOut(auth).then(() => {
+                window.location.reload();
+            });
+        });
+    </script>
+
+    <!-- UI & MAP SCRIPT -->
     <script>
+        // Global Demo Mode Bypass function
+        function launchDemoMode() {
+            document.getElementById('sidebar-name').textContent = 'Demo User';
+            launchApp();
+        }
+
+        function launchApp() {
+            const authScreen = document.getElementById('auth-screen');
+            authScreen.style.opacity = '0';
+            setTimeout(() => {
+                authScreen.style.visibility = 'hidden';
+                document.getElementById('app-container').classList.remove('hidden');
+                if(!map) initMap();
+            }, 500);
+        }
+
+        // CRGO Network Data
         const parkingData = [
-            // South Mumbai Cluster (Colaba to Marine Drive)
-            { id: 1, name: "Colaba Causeway Pod #1", category: "parking", hasEV: true, price: "₹60/hr", spots: 3, lat: 18.9220, lng: 72.8300, type: "indoor" },
-            { id: 2, name: "Colaba Post Office Stand", category: "parking", hasEV: false, price: "₹12/hr", spots: 24, lat: 18.9180, lng: 72.8280, type: "outdoor" },
-            { id: 3, name: "Nariman Point Central Mesh", category: "parking", hasEV: true, price: "₹80/hr", spots: 35, lat: 18.9280, lng: 72.8270, type: "valet" },
-            { id: 4, name: "Churchgate Station Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 28, lat: 18.9322, lng: 72.8264, type: "outdoor" },
-            { id: 5, name: "Marine Lines EV Hub", category: "ev", hasEV: true, price: "₹20/kWh", spots: 2, lat: 18.9440, lng: 72.8230, type: "charging" },
-            { id: 6, name: "Girgaon Chowpatty Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 22, lat: 18.9530, lng: 72.8120, type: "outdoor" },
-            { id: 7, name: "CST Station East Garage", category: "parking", hasEV: true, price: "₹55/hr", spots: 40, lat: 18.9400, lng: 72.8350, type: "indoor" },
-            { id: 8, name: "Fort Mumbai Bike Silo", category: "parking", hasEV: false, price: "₹10/hr", spots: 30, lat: 18.9350, lng: 72.8330, type: "outdoor" },
-            { id: 9, name: "Cuffe Parade Pod #2", category: "parking", hasEV: false, price: "₹75/hr", spots: 16, lat: 18.9150, lng: 72.8220, type: "indoor" },
             { id: 10, name: "CRGO Dark Garage - South", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 120, lat: 18.9250, lng: 72.8285, type: "hub" },
-
-            // Lower Parel & Worli Cluster
-            { id: 11, name: "Lower Parel Phoenix Pod", category: "parking", hasEV: true, price: "₹70/hr", spots: 40, lat: 18.9980, lng: 72.8300, type: "indoor" },
-            { id: 12, name: "Kamala Mills Tech Hub", category: "parking", hasEV: false, price: "₹15/hr", spots: 30, lat: 19.0020, lng: 72.8280, type: "outdoor" },
-            { id: 13, name: "Worli Sea Face Pod #2", category: "parking", hasEV: false, price: "₹65/hr", spots: 22, lat: 19.0150, lng: 72.8180, type: "outdoor" },
-            { id: 14, name: "Worli EV Fast Charger", category: "ev", hasEV: true, price: "₹18/kWh", spots: 4, lat: 19.0080, lng: 72.8150, type: "charging" },
-            { id: 15, name: "Mahalakshmi Station Stand", category: "parking", hasEV: true, price: "₹12/hr", spots: 25, lat: 18.9830, lng: 72.8250, type: "outdoor" },
-            { id: 16, name: "Elphinstone Road Pod", category: "parking", hasEV: false, price: "₹55/hr", spots: 18, lat: 19.0060, lng: 72.8350, type: "indoor" },
-            { id: 17, name: "Prabhadevi Temple Hub", category: "parking", hasEV: true, price: "₹14/hr", spots: 20, lat: 19.0130, lng: 72.8280, type: "outdoor" },
-            { id: 18, name: "Worli Naka EV & Park", category: "parking", hasEV: true, price: "₹60/hr", spots: 32, lat: 19.0100, lng: 72.8200, type: "indoor" },
-            { id: 19, name: "Parel TT Circle Pod", category: "parking", hasEV: false, price: "₹45/hr", spots: 15, lat: 19.0050, lng: 72.8420, type: "outdoor" },
             { id: 20, name: "CRGO Dark Garage - Central", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 180, lat: 19.0040, lng: 72.8220, type: "hub" },
-
-            // Dadar & Mahim Cluster
-            { id: 21, name: "Dadar TT Circle Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 15, lat: 19.0190, lng: 72.8480, type: "outdoor" },
-            { id: 22, name: "Dadar West Station Stand", category: "parking", hasEV: false, price: "₹12/hr", spots: 35, lat: 19.0170, lng: 72.8420, type: "outdoor" },
-            { id: 23, name: "Mahim Station EV Plug", category: "ev", hasEV: true, price: "₹16/kWh", spots: 3, lat: 19.0430, lng: 72.8430, type: "charging" },
-            { id: 24, name: "Shivaji Park Pod #1", category: "parking", hasEV: false, price: "₹55/hr", spots: 20, lat: 19.0270, lng: 72.8380, type: "outdoor" },
-            { id: 25, name: "Dadar Flower Market Silo", category: "parking", hasEV: true, price: "₹10/hr", spots: 45, lat: 19.0150, lng: 72.8450, type: "indoor" },
-            { id: 26, name: "Matunga Central Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 25, lat: 19.0280, lng: 72.8520, type: "indoor" },
-            { id: 27, name: "King Circle EV Mesh", category: "ev", hasEV: true, price: "₹17/kWh", spots: 5, lat: 19.0260, lng: 72.8550, type: "charging" },
-            { id: 28, name: "Sion Circle Hub Pod", category: "parking", hasEV: false, price: "₹45/hr", spots: 30, lat: 19.0360, lng: 72.8590, type: "outdoor" },
-            { id: 29, name: "Dadar East Metro Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 18, lat: 19.0180, lng: 72.8500, type: "indoor" },
             { id: 30, name: "CRGO Dark Hub - Dadar", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 110, lat: 19.0220, lng: 72.8450, type: "hub" },
-
-            // Bandra & BKC Cluster
-            { id: 31, name: "BKC Central Hub Pod #1", category: "parking", hasEV: true, price: "₹55/hr", spots: 50, lat: 19.0660, lng: 72.8660, type: "indoor" },
-            { id: 32, name: "Bandra Linking Rd Pod", category: "parking", hasEV: false, price: "₹15/hr", spots: 45, lat: 19.0550, lng: 72.8400, type: "outdoor" },
-            { id: 33, name: "Jio World EV Station", category: "ev", hasEV: true, price: "₹18/kWh", spots: 3, lat: 19.0680, lng: 72.8650, type: "charging" },
-            { id: 34, name: "Bandra Station West", category: "parking", hasEV: true, price: "₹12/hr", spots: 35, lat: 19.0580, lng: 72.8380, type: "outdoor" },
-            { id: 35, name: "Khar Gymkhana Pod", category: "parking", hasEV: false, price: "₹70/hr", spots: 15, lat: 19.0670, lng: 72.8310, type: "indoor" },
-            { id: 36, name: "Bandra Reclamation Park", category: "parking", hasEV: true, price: "₹50/hr", spots: 28, lat: 19.0480, lng: 72.8260, type: "outdoor" },
-            { id: 37, name: "BKC G-Block Fast EV", category: "ev", hasEV: true, price: "₹22/kWh", spots: 5, lat: 19.0630, lng: 72.8690, type: "charging" },
-            { id: 38, name: "Santacruz West Pod #1", category: "parking", hasEV: false, price: "₹45/hr", spots: 20, lat: 19.0800, lng: 72.8390, type: "indoor" },
-            { id: 39, name: "BKC Express Tower Pod", category: "parking", hasEV: true, price: "₹65/hr", spots: 30, lat: 19.0600, lng: 72.8640, type: "indoor" },
             { id: 40, name: "CRGO Dark Garage - BKC", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 250, lat: 19.0630, lng: 72.8630, type: "hub" },
-
-            // Kurla & Vidyavihar Cluster
-            { id: 41, name: "Kurla Phoenix Mall Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 30, lat: 19.0860, lng: 72.8890, type: "indoor" },
-            { id: 42, name: "LBS Marg Vidyavihar Stand", category: "parking", hasEV: false, price: "₹10/hr", spots: 25, lat: 19.0780, lng: 72.8950, type: "outdoor" },
-            { id: 43, name: "Kurla West EV Fast Plug", category: "ev", hasEV: true, price: "₹15/kWh", spots: 4, lat: 19.0800, lng: 72.8850, type: "charging" },
-            { id: 44, name: "Kurla Station East Pod", category: "parking", hasEV: false, price: "₹40/hr", spots: 18, lat: 19.0680, lng: 72.8880, type: "outdoor" },
-            { id: 45, name: "Vidyavihar Station West", category: "parking", hasEV: true, price: "₹12/hr", spots: 22, lat: 19.0760, lng: 72.8920, type: "outdoor" },
-            { id: 46, name: "Nehru Nagar Kurla Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 20, lat: 19.0720, lng: 72.8820, type: "indoor" },
-            { id: 47, name: "Bail Bazar Kurla Stand", category: "parking", hasEV: false, price: "₹10/hr", spots: 28, lat: 19.0850, lng: 72.8800, type: "outdoor" },
-            { id: 48, name: "Kurla CST Road Mesh", category: "parking", hasEV: true, price: "₹50/hr", spots: 24, lat: 19.0740, lng: 72.8750, type: "indoor" },
-            { id: 49, name: "Kalina University Pod", category: "parking", hasEV: false, price: "₹40/hr", spots: 35, lat: 19.0750, lng: 72.8680, type: "outdoor" },
             { id: 50, name: "CRGO Dark Hub - Kurla", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 140, lat: 19.0830, lng: 72.8870, type: "hub" },
-
-            // Saki Naka & Andheri East Cluster
-            { id: 51, name: "Sakinaka Metro Pod #1", category: "parking", hasEV: true, price: "₹40/hr", spots: 15, lat: 19.0960, lng: 72.8860, type: "indoor" },
-            { id: 52, name: "MIDC Central Branch #3", category: "parking", hasEV: true, price: "₹50/hr", spots: 30, lat: 19.1150, lng: 72.8710, type: "outdoor" },
-            { id: 53, name: "Marol Fire Station Node", category: "parking", hasEV: false, price: "₹10/hr", spots: 22, lat: 19.1090, lng: 72.8790, type: "outdoor" },
-            { id: 54, name: "Sakinaka Fast Plug Mesh", category: "ev", hasEV: true, price: "₹16/kWh", spots: 3, lat: 19.0990, lng: 72.8800, type: "charging" },
-            { id: 55, name: "Asalfa Link Rd Pod #2", category: "parking", hasEV: false, price: "₹45/hr", spots: 12, lat: 19.0910, lng: 72.8950, type: "outdoor" },
-            { id: 56, name: "JB Nagar Metro Stand", category: "parking", hasEV: true, price: "₹12/hr", spots: 26, lat: 19.1100, lng: 72.8630, type: "outdoor" },
-            { id: 57, name: "Andheri East Station Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 25, lat: 19.1130, lng: 72.8510, type: "indoor" },
-            { id: 58, name: "Chakala Business Park Pod", category: "parking", hasEV: false, price: "₹60/hr", spots: 40, lat: 19.1140, lng: 72.8630, type: "indoor" },
-            { id: 59, name: "Turiya Nagar EV Hub", category: "ev", hasEV: true, price: "₹18/kWh", spots: 2, lat: 19.1020, lng: 72.8850, type: "charging" },
             { id: 60, name: "CRGO Dark Hub - Alpha", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.1015, lng: 72.8810, type: "hub" },
-
-            // Powai & Chandivali Cluster
-            { id: 61, name: "Chandivali Farm Rd Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 18, lat: 19.1080, lng: 72.8980, type: "indoor" },
-            { id: 62, name: "Hiranandani Powai Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 25, lat: 19.1220, lng: 72.9150, type: "outdoor" },
-            { id: 63, name: "Chandivali EV Charger", category: "ev", hasEV: true, price: "₹22/kWh", spots: 3, lat: 19.1090, lng: 72.8970, type: "charging" },
-            { id: 64, name: "Powai Lake View Pod", category: "parking", hasEV: false, price: "₹55/hr", spots: 20, lat: 19.1180, lng: 72.9080, type: "outdoor" },
-            { id: 65, name: "Nahar Amrit Shakti Pod", category: "parking", hasEV: true, price: "₹12/hr", spots: 30, lat: 19.1030, lng: 72.9020, type: "indoor" },
-            { id: 66, name: "IIT Bombay Gate Pod", category: "parking", hasEV: true, price: "₹40/hr", spots: 35, lat: 19.1300, lng: 72.9120, type: "outdoor" },
-            { id: 67, name: "Powai Galleria Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 22, lat: 19.1200, lng: 72.9050, type: "outdoor" },
-            { id: 68, name: "JVLR Powai EV Station", category: "ev", hasEV: true, price: "₹19/kWh", spots: 4, lat: 19.1150, lng: 72.9000, type: "charging" },
-            { id: 69, name: "Saki Vihar Road Pod", category: "parking", hasEV: false, price: "₹45/hr", spots: 16, lat: 19.1040, lng: 72.8910, type: "outdoor" },
             { id: 70, name: "CRGO Dark Hub - Powai", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 130, lat: 19.1110, lng: 72.8960, type: "hub" },
-
-            // Andheri West & Juhu Cluster
-            { id: 71, name: "Andheri West Infiniti Pod", category: "parking", hasEV: true, price: "₹60/hr", spots: 25, lat: 19.1410, lng: 72.8300, type: "indoor" },
-            { id: 72, name: "Juhu Tara Road Stand", category: "parking", hasEV: false, price: "₹15/hr", spots: 20, lat: 19.1050, lng: 72.8350, type: "outdoor" },
-            { id: 73, name: "Andheri Lokhandwala EV", category: "ev", hasEV: true, price: "₹18/kWh", spots: 4, lat: 19.1350, lng: 72.8290, type: "charging" },
-            { id: 74, name: "Versova Metro Pod", category: "parking", hasEV: false, price: "₹50/hr", spots: 18, lat: 19.1320, lng: 72.8210, type: "outdoor" },
-            { id: 75, name: "Juhu Beach North Stand", category: "parking", hasEV: true, price: "₹14/hr", spots: 30, lat: 19.1120, lng: 72.8280, type: "outdoor" },
-            { id: 76, name: "DN Nagar Station Pod", category: "parking", hasEV: true, price: "₹55/hr", spots: 22, lat: 19.1240, lng: 72.8380, type: "indoor" },
-            { id: 77, name: "Four Bunglows Pod", category: "parking", hasEV: false, price: "₹45/hr", spots: 15, lat: 19.1290, lng: 72.8310, type: "outdoor" },
-            { id: 78, name: "Oshiwara Link Rd Hub", category: "parking", hasEV: true, price: "₹12/hr", spots: 28, lat: 19.1450, lng: 72.8350, type: "outdoor" },
-            { id: 79, name: "JVPD Scheme Pod", category: "parking", hasEV: false, price: "₹70/hr", spots: 14, lat: 19.1100, lng: 72.8420, type: "indoor" },
             { id: 80, name: "CRGO Dark Hub - Western", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 150, lat: 19.1200, lng: 72.8320, type: "hub" },
-
-            // Goregaon & Malad Cluster
-            { id: 81, name: "Goregaon Nesco Pod", category: "parking", hasEV: true, price: "₹50/hr", spots: 35, lat: 19.1538, lng: 72.8541, type: "indoor" },
-            { id: 82, name: "Malad Inorbit Stand", category: "parking", hasEV: false, price: "₹12/hr", spots: 30, lat: 19.1738, lng: 72.8351, type: "outdoor" },
-            { id: 83, name: "Goregaon East EV Plug", category: "ev", hasEV: true, price: "₹16/kWh", spots: 3, lat: 19.1650, lng: 72.8550, type: "charging" },
-            { id: 84, name: "Aarey Colony Gate Pod", category: "parking", hasEV: false, price: "₹40/hr", spots: 25, lat: 19.1430, lng: 72.8710, type: "outdoor" },
-            { id: 85, name: "Goregaon West Station", category: "parking", hasEV: true, price: "₹10/hr", spots: 32, lat: 19.1600, lng: 72.8450, type: "outdoor" },
-            { id: 86, name: "Malad Link Road Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 20, lat: 19.1700, lng: 72.8400, type: "indoor" },
-            { id: 87, name: "Bangur Nagar Pod #1", category: "parking", hasEV: false, price: "₹50/hr", spots: 18, lat: 19.1620, lng: 72.8340, type: "indoor" },
-            { id: 88, name: "Ram Mandir Station Pod", category: "parking", hasEV: true, price: "₹12/hr", spots: 24, lat: 19.1480, lng: 72.8470, type: "outdoor" },
-            { id: 89, name: "Oberoi Mall Goregaon Pod", category: "parking", hasEV: true, price: "₹60/hr", spots: 45, lat: 19.1750, lng: 72.8620, type: "indoor" },
             { id: 90, name: "CRGO Dark Hub - North", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 170, lat: 19.1600, lng: 72.8450, type: "hub" },
-
-            // Ghatkopar & Chembur Cluster
-            { id: 91, name: "Ghatkopar R-City Pod", category: "parking", hasEV: true, price: "₹55/hr", spots: 40, lat: 19.0980, lng: 72.9160, type: "indoor" },
-            { id: 92, name: "Chembur Diamond Garden", category: "parking", hasEV: false, price: "₹12/hr", spots: 28, lat: 19.0520, lng: 72.9000, type: "outdoor" },
-            { id: 93, name: "Tilak Nagar Station Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 20, lat: 19.0680, lng: 72.8980, type: "outdoor" },
-            { id: 94, name: "Ghatkopar Metro Stand", category: "parking", hasEV: true, price: "₹15/hr", spots: 35, lat: 19.0850, lng: 72.9080, type: "outdoor" },
-            { id: 95, name: "Chembur Station East Pod", category: "parking", hasEV: false, price: "₹50/hr", spots: 22, lat: 19.0610, lng: 72.9050, type: "indoor" },
-            { id: 96, name: "Vikhroli West Highway Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 30, lat: 19.1020, lng: 72.9280, type: "outdoor" },
-            { id: 97, name: "Kanjurmarg Station Pod", category: "parking", hasEV: false, price: "₹10/hr", spots: 25, lat: 19.1230, lng: 72.9350, type: "outdoor" },
-            { id: 98, name: "Sion Panvel Highway Hub", category: "parking", hasEV: true, price: "₹60/hr", spots: 38, lat: 19.0450, lng: 72.8920, type: "indoor" },
-            { id: 99, name: "Chheda Nagar Junction Pod", category: "parking", hasEV: true, price: "₹14/hr", spots: 20, lat: 19.0690, lng: 72.8950, type: "outdoor" },
-            { id: 100, name: "CRGO Dark Hub - Eastern", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.0880, lng: 72.9100, type: "hub" }
+            { id: 100, name: "CRGO Dark Hub - Eastern", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.0880, lng: 72.9100, type: "hub" },
+            { id: 31, name: "BKC Central Hub Pod #1", category: "parking", hasEV: true, price: "₹55/hr", spots: 50, lat: 19.0660, lng: 72.8660, type: "indoor" },
+            { id: 37, name: "BKC G-Block Fast EV", category: "ev", hasEV: true, price: "₹22/kWh", spots: 5, lat: 19.0630, lng: 72.8690, type: "charging" },
+            { id: 41, name: "Kurla Phoenix Mall Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 30, lat: 19.0860, lng: 72.8890, type: "indoor" },
+            { id: 51, name: "Sakinaka Metro Pod #1", category: "parking", hasEV: true, price: "₹40/hr", spots: 15, lat: 19.0960, lng: 72.8860, type: "indoor" }
         ];
 
         let map;
@@ -434,50 +448,26 @@
         let currentRouteLine = null;
         
         const userLocation = [19.0988, 72.8838];
-
         const sheet = document.getElementById('bottom-sheet');
         const locateContainer = document.getElementById('locate-container');
         const dragZone = document.getElementById('drag-zone');
         const parkingList = document.getElementById('parking-list');
         
-        let isDragging = false;
-        let startY = 0;
-        let currentTranslate = 0;
-        let startTranslate = 0;
-        
+        let isDragging = false, startY = 0, currentTranslate = 0, startTranslate = 0;
         let vh = window.innerHeight;
-        let SNAPS = {
-            EXPANDED: 0,
-            HALF: vh * 0.40,
-            COLLAPSED: vh * 0.72
-        };
+        let SNAPS = { EXPANDED: 0, HALF: vh * 0.40, COLLAPSED: vh * 0.72 };
 
-        // Initialize Map and UI straight on load
-        document.addEventListener('DOMContentLoaded', () => {
-            initMap();
-        });
-
-        function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebar-overlay');
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('open');
+        window.toggleSidebar = function() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('sidebar-overlay').classList.toggle('open');
         }
 
         function updateSheetPosition(translateY, animate = false) {
             currentTranslate = translateY;
-            if (animate) {
-                sheet.style.transition = 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)';
-                locateContainer.style.transition = 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)';
-            } else {
-                sheet.style.transition = 'none';
-                locateContainer.style.transition = 'none';
-            }
+            sheet.style.transition = animate ? 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)' : 'none';
+            locateContainer.style.transition = animate ? 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)' : 'none';
             sheet.style.transform = `translateY(${currentTranslate}px)`;
-            
-            const sheetHeightPx = vh * 0.85;
-            const locateBottom = sheetHeightPx - currentTranslate + 12;
-            locateContainer.style.bottom = `${locateBottom}px`;
+            locateContainer.style.bottom = `${(vh * 0.85) - currentTranslate + 12}px`;
         }
         
         window.addEventListener('resize', () => {
@@ -485,9 +475,6 @@
             SNAPS = { EXPANDED: 0, HALF: vh * 0.40, COLLAPSED: vh * 0.72 };
             updateSheetPosition(SNAPS.HALF, true);
         });
-
-        currentTranslate = SNAPS.HALF;
-        updateSheetPosition(currentTranslate, false);
 
         function handleDragStart(e) {
             if (e.target.closest('button')) return;
@@ -500,34 +487,22 @@
         function handleDragMove(e) {
             if (!isDragging) return;
             if (e.cancelable) e.preventDefault();
-            
             const currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
-            const deltaY = currentY - startY;
-            let newTranslate = startTranslate + deltaY;
-            
-            if (newTranslate < 0) newTranslate = newTranslate * 0.3;
-            if (newTranslate > SNAPS.COLLAPSED + 50) newTranslate = SNAPS.COLLAPSED + 50 + (newTranslate - (SNAPS.COLLAPSED + 50)) * 0.3;
-            
+            let newTranslate = startTranslate + (currentY - startY);
+            if (newTranslate < 0) newTranslate *= 0.3;
+            if (newTranslate > SNAPS.COLLAPSED + 50) newTranslate = SNAPS.COLLAPSED + 50;
             updateSheetPosition(newTranslate, false);
         }
 
         function handleDragEnd(e) {
             if (!isDragging) return;
             isDragging = false;
-            
             const currentY = e.type.includes('mouse') ? e.clientY : (e.changedTouches ? e.changedTouches[0].clientY : startY);
             const deltaY = currentY - startY;
-
             let targetTranslate = currentTranslate;
-            if (deltaY > 50) { 
-                targetTranslate = SNAPS.COLLAPSED;
-            } else if (deltaY < -50) { 
-                targetTranslate = SNAPS.EXPANDED;
-            } else {
-                const points = Object.values(SNAPS);
-                targetTranslate = points.reduce((prev, curr) => Math.abs(curr - currentTranslate) < Math.abs(prev - currentTranslate) ? curr : prev);
-            }
-            
+            if (deltaY > 50) targetTranslate = SNAPS.COLLAPSED;
+            else if (deltaY < -50) targetTranslate = SNAPS.EXPANDED;
+            else targetTranslate = Object.values(SNAPS).reduce((p, c) => Math.abs(c - currentTranslate) < Math.abs(p - currentTranslate) ? c : p);
             updateSheetPosition(targetTranslate, true);
             if (targetTranslate === SNAPS.COLLAPSED) parkingList.scrollTo({ top: 0, behavior: 'smooth' });
         }
@@ -535,103 +510,61 @@
         dragZone.addEventListener('touchstart', handleDragStart, { passive: false });
         window.addEventListener('touchmove', handleDragMove, { passive: false });
         window.addEventListener('touchend', handleDragEnd);
-
         dragZone.addEventListener('mousedown', handleDragStart);
         window.addEventListener('mousemove', handleDragMove);
         window.addEventListener('mouseup', handleDragEnd);
 
         function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
+            const p = 0.017453292519943295, c = Math.cos;
+            const a = 0.5 - c((lat2 - lat1) * p)/2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
+            return 12742 * Math.asin(Math.sqrt(a));
         }
 
         function initMap() {
-            map = L.map('map', {
-                zoomControl: false,
-                attributionControl: false
-            }).setView(userLocation, 13);
-
+            if (map) return;
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView(userLocation, 13);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
             markerLayerGroup = L.layerGroup().addTo(map);
 
             const userIcon = L.divIcon({
                 className: '',
-                html: `<div class="relative flex items-center justify-center w-6 h-6">
-                         <div class="absolute w-full h-full bg-blue-500 rounded-full animate-ping opacity-75"></div>
-                         <div class="relative w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md"></div>
-                       </div>`,
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
+                html: `<div class="relative flex items-center justify-center w-6 h-6"><div class="absolute w-full h-full bg-blue-500 rounded-full animate-ping opacity-75"></div><div class="relative w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md"></div></div>`,
+                iconSize: [24, 24], iconAnchor: [12, 12]
             });
             L.marker(userLocation, { icon: userIcon }).addTo(map);
 
+            updateSheetPosition(SNAPS.HALF, false);
             renderMarkers();
             renderParkingList();
         }
 
-        function locateUser() {
+        window.locateUser = function() {
             if (map) {
-                // Zoom to 50m radius (Leaflet zoom level 18 provides a ~50-meter scale view)
                 map.flyTo(userLocation, 18, { animate: true, duration: 1.0 });
-                
                 const icon = document.getElementById('locate-icon');
-                if (icon) {
-                    icon.classList.add('text-blue-600');
-                    setTimeout(() => icon.classList.remove('text-blue-600'), 1000);
-                }
-
+                if(icon) { icon.classList.add('text-blue-600'); setTimeout(() => icon.classList.remove('text-blue-600'), 1000); }
                 updateSheetPosition(SNAPS.COLLAPSED, true);
                 parkingList.scrollTo({ top: 0, behavior: 'smooth' });
             }
         }
 
-        function setFilter(category) {
+        window.setFilter = function(category) {
             currentFilter = category;
-            
-            const filters = [
-                { id: 'all', icon: 'ph-squares-four' },
-                { id: 'parking', icon: 'ph-car-profile' },
-                { id: 'ev', icon: 'ph-lightning' }
-            ];
-
+            const filters = [{ id: 'all', icon: 'ph-squares-four' }, { id: 'parking', icon: 'ph-car-profile' }, { id: 'ev', icon: 'ph-lightning' }];
             filters.forEach(f => {
                 const btn = document.getElementById(`btn-${f.id}`);
                 const icon = btn.querySelector('i');
-                
                 if (f.id === category) {
                     btn.className = 'bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95';
-                    icon.className = `ph-fill ${f.icon} text-lg`;
                 } else {
                     btn.className = 'glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95';
-                    icon.className = `ph-fill ${f.icon} text-lg`;
                 }
             });
-
             renderMarkers();
             renderParkingList();
-
-            const filtered = parkingData.filter(spot => {
-                const matchesCategory = currentFilter === 'all' || 
-                    (currentFilter === 'ev' ? spot.hasEV : (spot.category === 'parking' || spot.isCloudHub));
-                const matchesSearch = spot.name.toLowerCase().includes(searchQuery);
-                return matchesCategory && matchesSearch;
-            });
-
-            if(filtered.length > 0) {
-                map.flyTo([filtered[0].lat, filtered[0].lng], 14, { animate: true, duration: 0.8 });
-                if(currentTranslate === SNAPS.COLLAPSED) {
-                    updateSheetPosition(SNAPS.HALF, true);
-                }
-            }
         }
 
-        function filterBySearch(query) {
+        window.filterBySearch = function(query) {
             searchQuery = query.toLowerCase();
             renderMarkers();
             renderParkingList();
@@ -643,84 +576,40 @@
             markers = {};
 
             const filteredData = parkingData.filter(spot => {
-                const matchesCategory = currentFilter === 'all' || 
-                    (currentFilter === 'ev' ? spot.hasEV : (spot.category === 'parking' || spot.isCloudHub));
+                const matchesCategory = currentFilter === 'all' || (currentFilter === 'ev' ? spot.hasEV : (spot.category === 'parking' || spot.isCloudHub));
                 const matchesSearch = spot.name.toLowerCase().includes(searchQuery);
                 return matchesCategory && matchesSearch;
             });
 
-            const usedCoords = new Set();
-
             filteredData.forEach(spot => {
-                let lat = spot.lat;
-                let lng = spot.lng;
-                let key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-                let offsetMultiplier = 0;
-                
-                while (usedCoords.has(key)) {
-                    offsetMultiplier++;
-                    lat = spot.lat + (offsetMultiplier * 0.00018 * Math.cos(offsetMultiplier));
-                    lng = spot.lng + (offsetMultiplier * 0.00018 * Math.sin(offsetMultiplier));
-                    key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-                }
-                usedCoords.add(key);
-
                 let markerContent = '<i class="ph-fill ph-car-profile text-lg"></i>';
-                let extraClass = '';
-                let pulseClass = spot.spots <= 4 ? 'pulse-ring' : '';
-                
-                if (spot.isCloudHub) {
-                    markerContent = '<i class="ph-bold ph-stack text-lg"></i>';
-                    extraClass = 'marker-cloud';
-                } else if (spot.hasEV) {
-                    markerContent = '<div class="flex items-center gap-0.5"><i class="ph-fill ph-car text-xs"></i><i class="ph-fill ph-lightning text-xs text-yellow-300"></i></div>';
-                    extraClass = 'marker-ev-combo';
-                }
+                let extraClass = '', pulseClass = spot.spots <= 4 ? 'pulse-ring' : '';
+                if (spot.isCloudHub) { markerContent = '<i class="ph-bold ph-stack text-lg text-white"></i>'; extraClass = 'marker-cloud'; } 
+                else if (spot.hasEV) { markerContent = '<div class="flex items-center gap-0.5"><i class="ph-fill ph-car text-xs"></i><i class="ph-fill ph-lightning text-xs text-yellow-300"></i></div>'; extraClass = 'marker-ev-combo'; }
 
-                const icon = L.divIcon({
-                    className: '',
-                    html: `<div id="marker-${spot.id}" class="custom-marker ${extraClass} ${pulseClass}">${markerContent}</div>`,
-                    iconSize: [38, 38],
-                    iconAnchor: [19, 19]
-                });
-
-                const marker = L.marker([lat, lng], { icon: icon }).addTo(markerLayerGroup);
+                const icon = L.divIcon({ className: '', html: `<div id="marker-${spot.id}" class="custom-marker ${extraClass} ${pulseClass}">${markerContent}</div>`, iconSize: [38, 38], iconAnchor: [19, 19] });
+                const marker = L.marker([spot.lat, spot.lng], { icon: icon }).addTo(markerLayerGroup);
                 marker.on('click', () => handleSelection(spot.id));
                 markers[spot.id] = marker;
             });
         }
 
         function renderParkingList() {
-            const listContainer = document.getElementById('parking-list');
-            listContainer.innerHTML = '';
-
+            parkingList.innerHTML = '';
             const filteredData = parkingData.filter(spot => {
-                const matchesCategory = currentFilter === 'all' || 
-                    (currentFilter === 'ev' ? spot.hasEV : (spot.category === 'parking' || spot.isCloudHub));
+                const matchesCategory = currentFilter === 'all' || (currentFilter === 'ev' ? spot.hasEV : (spot.category === 'parking' || spot.isCloudHub));
                 const matchesSearch = spot.name.toLowerCase().includes(searchQuery);
                 return matchesCategory && matchesSearch;
             });
 
-            filteredData.forEach(spot => {
-                spot.calculatedDist = calculateDistance(userLocation[0], userLocation[1], spot.lat, spot.lng);
-            });
-
+            filteredData.forEach(spot => { spot.calculatedDist = calculateDistance(userLocation[0], userLocation[1], spot.lat, spot.lng); });
             filteredData.sort((a, b) => a.calculatedDist - b.calculatedDist);
-
-            if (filteredData.length === 0) {
-                listContainer.innerHTML = `<div class="text-center text-gray-500 mt-10 font-medium">No mesh nodes found matching your criteria.</div>`;
-                return;
-            }
 
             filteredData.forEach(spot => {
                 const card = document.createElement('div');
                 card.id = `card-${spot.id}`;
-                
                 const distStr = spot.calculatedDist < 1 ? `${Math.round(spot.calculatedDist * 1000)} m` : `${spot.calculatedDist.toFixed(1)} km`;
-                const estTime = Math.max(2, Math.round(spot.calculatedDist * 3)) + ' min';
                 
-                let lowSpotBadge = spot.spots <= 4 ? `<span class="bg-red-500 text-white font-black text-[10px] px-2.5 py-0.5 rounded-full animate-bounce shadow-sm">🔥 Only ${spot.spots} left!</span>` : `<span class="text-[10px] font-bold text-gray-500 mt-1 bg-gray-100 px-2 py-0.5 rounded-md">${spot.spots} spots</span>`;
-
                 if (spot.isCloudHub) {
                     card.className = 'glass-card rounded-[28px] p-5 cursor-pointer flex flex-col gap-1 relative overflow-hidden border border-purple-400/50 bg-gradient-to-br from-white/95 to-purple-50/90 shadow-md';
                     card.innerHTML = `
@@ -732,31 +621,12 @@
                                 <div class="flex flex-col">
                                     <div class="text-[10px] font-black uppercase tracking-widest text-purple-600 mb-0.5 opacity-90">Universal Dark Garage Mesh</div>
                                     <h3 class="font-extrabold text-gray-900 text-[18px] leading-tight tracking-tight">${spot.name}</h3>
-                                    <div class="flex items-center gap-2 mt-1 mb-2">
-                                        <span class="text-sm font-bold text-gray-700">${distStr}</span>
-                                        <span class="text-gray-400">•</span>
-                                        <span class="text-sm font-semibold text-gray-500">${estTime}</span>
-                                    </div>
-                                    <div class="flex flex-wrap gap-1.5 mt-1">
-                                        <div class="flex items-center gap-1.5 text-[11px] font-bold text-gray-800 bg-white/70 px-2.5 py-1 rounded-md shadow-sm border border-white/50">
-                                            <i class="ph-bold ph-car text-blue-600"></i> Car Stacker
-                                        </div>
-                                        <div class="flex items-center gap-1.5 text-[11px] font-bold text-gray-800 bg-white/70 px-2.5 py-1 rounded-md shadow-sm border border-white/50">
-                                            <i class="ph-bold ph-bicycle text-green-600"></i> Bike Silo
-                                        </div>
-                                        ${spot.hasEV ? '<div class="flex items-center gap-1 text-[11px] font-bold text-green-700 bg-green-50 px-2.5 py-1 rounded-md shadow-sm border border-green-200"><i class="ph-fill ph-lightning"></i> EV Ready</div>' : ''}
-                                    </div>
+                                    <span class="text-sm font-bold text-gray-700 mt-1">${distStr}</span>
                                 </div>
                             </div>
-                            <div class="text-right flex flex-col items-end justify-between h-full py-1 shrink-0">
-                                <div class="font-black text-[11px] text-white bg-purple-600 px-3 py-1 rounded-full mb-3 shadow-md border border-purple-400">${spot.spots} spots</div>
-                                <button class="bg-gray-900 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg hover:scale-105 transition-all w-full mt-6 border border-gray-700" onclick="routeToSpot(event, ${spot.id})">Route To Hub</button>
-                            </div>
-                        </div>
-                    `;
+                        </div>`;
                 } else {
                     card.className = 'glass-card rounded-[28px] p-5 cursor-pointer flex flex-col gap-1 relative overflow-hidden';
-                    
                     card.innerHTML = `
                         <div class="flex justify-between items-center w-full">
                             <div class="flex items-center gap-4">
@@ -765,472 +635,70 @@
                                 </div>
                                 <div class="flex flex-col">
                                     <h3 class="font-extrabold text-gray-900 text-[18px] leading-tight tracking-tight">${spot.name}</h3>
-                                    <div class="flex items-center gap-2 mt-1">
-                                        <span class="text-sm font-bold text-gray-700">${distStr}</span>
-                                        <span class="text-gray-300">•</span>
-                                        <span class="text-sm font-semibold text-gray-500">${estTime}</span>
-                                    </div>
-                                    <div class="flex items-center gap-2 mt-1.5">
-                                        <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                                            ${spot.type === 'valet' ? '<i class="ph-fill ph-star text-rapido"></i>' : ''} ${spot.type} branch pod
-                                        </p>
-                                        <span class="text-[10px] font-extrabold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Car & Bike Slots</span>
-                                        ${spot.hasEV ? '<span class="text-[10px] font-extrabold text-green-700 bg-green-100 px-2 py-0.5 rounded-full flex items-center gap-0.5"><i class="ph-fill ph-lightning"></i> + EV</span>' : ''}
-                                    </div>
+                                    <span class="text-sm font-bold text-gray-700 mt-1">${distStr}</span>
                                 </div>
                             </div>
-                            <div class="text-right flex flex-col items-end justify-center">
-                                <div class="font-black text-xl text-gray-900">${spot.price}</div>
-                                <div class="mt-1">${lowSpotBadge}</div>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-4 pt-4 border-t border-gray-200/50 flex justify-between items-center">
-                            <div class="text-xs font-bold text-gray-500 flex items-center gap-1.5 bg-white/50 px-3 py-1 rounded-full border border-white/60">
-                                <i class="ph-fill ph-shield-check text-green-500 text-sm"></i> 1km-3km mesh branch
-                            </div>
-                            <div class="flex gap-2">
-                                <button class="bg-gray-100 text-gray-900 px-4 py-2.5 rounded-xl font-bold text-xs shadow-sm hover:bg-gray-200 transition-all border border-gray-200" onclick="routeToSpot(event, ${spot.id})"><i class="ph-bold ph-navigation-arrow"></i> Route</button>
-                                <button class="bg-black text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg hover:scale-105 transition-all" onclick="bookSpot(event, ${spot.id})">${spot.hasEV ? 'Book Plug' : 'Book Spot'}</button>
-                            </div>
-                        </div>
-                    `;
+                            <div class="font-black text-xl text-gray-900">${spot.price}</div>
+                        </div>`;
                 }
                 card.addEventListener('click', () => handleSelection(spot.id));
-                listContainer.appendChild(card);
+                parkingList.appendChild(card);
             });
         }
 
         function handleSelection(id) {
             const spot = parkingData.find(s => s.id === id);
             if (!spot) return;
-
             map.flyTo([spot.lat, spot.lng], 16, { animate: true, duration: 1 });
             drawRoute(spot.lat, spot.lng);
-
             document.querySelectorAll('.custom-marker').forEach(m => m.classList.remove('active-marker'));
             const activeMarker = document.getElementById(`marker-${id}`);
             if (activeMarker) activeMarker.classList.add('active-marker');
-
             document.querySelectorAll('.glass-card').forEach(c => c.classList.remove('active'));
             const activeCard = document.getElementById(`card-${id}`);
             if (activeCard) {
                 activeCard.classList.add('active');
-                const list = document.getElementById('parking-list');
-                const offset = activeCard.offsetTop - list.offsetTop;
-                list.scrollTo({ top: offset, behavior: 'smooth' });
+                const offset = activeCard.offsetTop - parkingList.offsetTop;
+                parkingList.scrollTo({ top: offset, behavior: 'smooth' });
             }
         }
 
         async function drawRoute(lat, lng) {
-            if (currentRouteLine) {
-                map.removeLayer(currentRouteLine);
-            }
-
-            const fallbackLatlngs = [
-                userLocation,
-                [(userLocation[0] + lat) / 2 + 0.002, (userLocation[1] + lng) / 2 - 0.002],
-                [lat, lng]
-            ];
-
+            if (currentRouteLine) map.removeLayer(currentRouteLine);
+            const fallbackLatlngs = [userLocation, [(userLocation[0] + lat) / 2 + 0.002, (userLocation[1] + lng) / 2 - 0.002], [lat, lng]];
             try {
-                const url = `https://router.project-osrm.org/route/v1/driving/${userLocation[1]},${userLocation[0]};${lng},${lat}?overview=full&geometries=geojson`;
-                const res = await fetch(url);
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${userLocation[1]},${userLocation[0]};${lng},${lat}?overview=full&geometries=geojson`);
                 const data = await res.json();
-
-                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-                    const coords = data.routes[0].geometry.coordinates;
-                    const latlngs = coords.map(c => [c[1], c[0]]);
-
-                    currentRouteLine = L.polyline(latlngs, {
-                        color: '#212121',
-                        weight: 6,
-                        opacity: 0.9,
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    }).addTo(map);
+                if (data.code === 'Ok') {
+                    currentRouteLine = L.polyline(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), { color: '#212121', weight: 6, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(map);
                     return;
                 }
-            } catch (e) {
-                console.warn('OSRM routing API unavailable, falling back to direct road path', e);
-            }
-
-            currentRouteLine = L.polyline(fallbackLatlngs, {
-                color: '#212121',
-                weight: 5,
-                opacity: 0.85,
-                dashArray: '8, 12',
-                lineCap: 'round'
-            }).addTo(map);
+            } catch (e) {}
+            currentRouteLine = L.polyline(fallbackLatlngs, { color: '#212121', weight: 5, dashArray: '8, 12' }).addTo(map);
         }
 
-        function routeToSpot(event, id) {
-            event.stopPropagation();
-            const spot = parkingData.find(s => s.id === id);
-            if (!spot) return;
-            handleSelection(id);
-            updateSheetPosition(SNAPS.COLLAPSED, true);
+        window.showCRGOValetModal = function() {
+            showGlassModal("CRGO Valet Mesh Drive", "<p>Our automated dispatch assigns a verified driver to your pin to store your vehicle in the nearest road-connected dark garage.</p>", "Request Valet");
         }
 
-        function bookSpot(event, id) {
-            event.stopPropagation();
-            const spot = parkingData.find(s => s.id === id);
-            
-            if (spot.hasEV) {
-                showEVSessionModal(spot);
-            } else {
-                showGlassModal(`Confirm Booking`, `<p>Do you want to book a dual car/bike spot at <b>${spot.name}</b> for ${spot.price}?</p>`, 'Confirm');
-            }
-        }
-
-        function showEVSessionModal(spot) {
+        window.showGlassModal = function(title, message, confirmText = 'Confirm') {
             const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 z-[3000] flex items-center justify-center px-4 bg-gray-900/50 backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-auto';
-            
-            modal.innerHTML = `
-                <div class="glass-panel w-full max-w-sm rounded-[32px] p-7 shadow-2xl transform scale-95 transition-transform duration-300 border border-white/80 bg-white/90">
-                    <div class="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center mb-4 mx-auto shadow-lg border-4 border-white animate-pulse">
-                        <i class="ph-fill ph-lightning text-3xl text-white"></i>
-                    </div>
-                    <h3 class="text-2xl font-extrabold text-center text-gray-900 mb-1 tracking-tight">EV Fast Charge Live</h3>
-                    <p class="text-xs text-center text-gray-500 font-bold mb-5">${spot.name}</p>
-                    
-                    <div class="bg-gray-900 text-white p-5 rounded-2xl mb-6 shadow-inner space-y-3">
-                        <div class="flex justify-between items-center text-xs text-gray-400 font-bold uppercase tracking-wider">
-                            <span>Battery Status</span>
-                            <span id="ev-pct" class="text-green-400 text-sm">48%</span>
-                        </div>
-                        <div class="w-full bg-gray-800 h-3 rounded-full overflow-hidden p-0.5 border border-gray-700">
-                            <div id="ev-bar" class="bg-gradient-to-r from-green-500 to-emerald-400 h-full rounded-full transition-all duration-500" style="width: 48%"></div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 pt-2 text-center">
-                            <div class="bg-gray-800/80 p-2 rounded-xl border border-gray-700">
-                                <div class="text-[10px] text-gray-400 uppercase font-bold">Energy</div>
-                                <div id="ev-kwh" class="text-sm font-extrabold text-white">12.4 kWh</div>
-                            </div>
-                            <div class="bg-gray-800/80 p-2 rounded-xl border border-gray-700">
-                                <div class="text-[10px] text-gray-400 uppercase font-bold">Est. Cost</div>
-                                <div id="ev-cost" class="text-sm font-extrabold text-yellow-400">₹223.20</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button id="modal-close-ev" class="w-full py-3.5 rounded-2xl font-bold text-black bg-rapido shadow-lg hover:scale-105 transition-all">Done / Stop Session</button>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-            requestAnimationFrame(() => {
-                modal.classList.remove('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-95');
-                modal.querySelector('.glass-panel').classList.add('scale-100');
-            });
-
-            let currentPct = 48;
-            let currentKwh = 12.4;
-            const interval = setInterval(() => {
-                if (currentPct < 95) {
-                    currentPct += 2;
-                    currentKwh += 0.8;
-                    const pctEl = modal.querySelector('#ev-pct');
-                    const barEl = modal.querySelector('#ev-bar');
-                    const kwhEl = modal.querySelector('#ev-kwh');
-                    const costEl = modal.querySelector('#ev-cost');
-                    if(pctEl) pctEl.textContent = currentPct + '%';
-                    if(barEl) barEl.style.width = currentPct + '%';
-                    if(kwhEl) kwhEl.textContent = currentKwh.toFixed(1) + ' kWh';
-                    if(costEl) costEl.textContent = '₹' + (currentKwh * 18).toFixed(2);
-                }
-            }, 1200);
-
-            const close = () => {
-                clearInterval(interval);
-                modal.classList.add('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-100');
-                modal.querySelector('.glass-panel').classList.add('scale-95');
-                setTimeout(() => modal.remove(), 300);
-            };
-
-            modal.querySelector('#modal-close-ev').onclick = close;
-        }
-
-        function showEarnModal() {
-            const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 z-[3000] flex items-center justify-center px-4 bg-gray-900/50 backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-auto';
-            
-            modal.innerHTML = `
-                <div class="glass-panel w-full max-w-md rounded-[36px] p-7 shadow-2xl transform scale-95 transition-transform duration-300 border border-white/80 bg-white/95 flex flex-col max-h-[90vh]">
-                    <div class="flex justify-between items-center pb-4 border-b border-gray-200/60 shrink-0">
-                        <div class="flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-2xl bg-rapido text-black flex items-center justify-center shadow-md font-black text-xl">
-                                ₹
-                            </div>
-                            <div>
-                                <h3 class="font-extrabold text-gray-900 text-lg leading-tight">Earn more by parking cars</h3>
-                                <p class="text-[11px] text-yellow-700 font-bold tracking-wide">CRGO Valet Partner Network</p>
-                            </div>
-                        </div>
-                        <button id="earn-close" class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors">
-                            <i class="ph-bold ph-x text-gray-700 text-lg"></i>
-                        </button>
-                    </div>
-
-                    <div class="flex-1 overflow-y-auto py-5 space-y-5 hide-scrollbar text-sm">
-                        <div class="bg-gradient-to-br from-gray-900 to-gray-800 text-white p-5 rounded-3xl shadow-lg relative overflow-hidden">
-                            <div class="absolute right-0 bottom-0 translate-x-4 translate-y-4 opacity-10 text-9xl font-black">₹</div>
-                            <div class="text-[10px] font-extrabold text-rapido uppercase tracking-widest mb-1">Driver Partner Program</div>
-                            <div class="text-2xl font-black mb-2">Earn ₹15 per drop-off</div>
-                            <p class="text-xs text-gray-300 leading-relaxed font-medium">Verify your driver license, accept local car moving gigs from users to the nearest 1km-3km dark garage mesh pod, and earn commission instantly!</p>
-                        </div>
-
-                        <!-- Verification Status Section -->
-                        <div id="driver-onboarding" class="space-y-4 bg-white/80 p-5 rounded-3xl border border-gray-200 shadow-sm">
-                            <div class="font-extrabold text-gray-900 text-base">Step 1: Driver Document Verification</div>
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 mb-1">Full Legal Name</label>
-                                <input type="text" id="d-name" value="Rahul Sharma" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold outline-none focus:border-black">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 mb-1">Driving License Number</label>
-                                <input type="text" id="d-lic" placeholder="MH-02-20210049281" class="w-full bg-gray-50 border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold outline-none focus:border-black">
-                            </div>
-                            <button onclick="verifyDriver()" class="w-full bg-black text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-gray-800 transition">Verify & Become Driver</button>
-                        </div>
-
-                        <!-- Active Gigs Hub (Hidden initially) -->
-                        <div id="driver-dashboard" class="hidden space-y-4">
-                            <div class="flex justify-between items-center bg-green-50 p-4 rounded-2xl border border-green-200">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center font-bold">✓</div>
-                                    <div>
-                                        <div class="text-xs font-black text-green-800 uppercase tracking-wider">Driver Status: Verified</div>
-                                        <div class="text-[11px] text-green-700 font-semibold">Ready to accept vehicle delivery gigs</div>
-                                    </div>
-                                </div>
-                                <div class="text-right">
-                                    <div class="text-[10px] text-gray-500 uppercase font-bold">Earnings</div>
-                                    <div id="driver-wallet" class="font-black text-base text-gray-900">₹450</div>
-                                </div>
-                            </div>
-
-                            <div class="font-extrabold text-gray-900 text-sm">Active Parking Delivery Gigs Near You</div>
-                            
-                            <div class="space-y-3">
-                                <div class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex justify-between items-center">
-                                    <div>
-                                        <div class="font-extrabold text-gray-900 text-sm">BKC Hub ➔ Dark Garage BKC</div>
-                                        <div class="text-xs text-gray-500 font-medium mt-0.5">Distance: 800m • Sedan Transfer</div>
-                                        <div class="text-xs font-extrabold text-green-600 mt-1">Fee: ₹15.00</div>
-                                    </div>
-                                    <button onclick="acceptGig(this, 15, 'BKC Hub to Dark Garage')" class="bg-rapido text-black px-4 py-2.5 rounded-xl font-extrabold text-xs shadow-md hover:scale-105 transition">Accept Gig</button>
-                                </div>
-
-                                <div class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex justify-between items-center">
-                                    <div>
-                                        <div class="font-extrabold text-gray-900 text-sm">Colaba Pod #1 ➔ South Dark Hub</div>
-                                        <div class="text-xs text-gray-500 font-medium mt-0.5">Distance: 1.2 km • Hatchback</div>
-                                        <div class="text-xs font-extrabold text-green-600 mt-1">Fee: ₹15.00</div>
-                                    </div>
-                                    <button onclick="acceptGig(this, 15, 'Colaba Pod to South Dark Hub')" class="bg-rapido text-black px-4 py-2.5 rounded-xl font-extrabold text-xs shadow-md hover:scale-105 transition">Accept Gig</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-            requestAnimationFrame(() => {
-                modal.classList.remove('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-95');
-                modal.querySelector('.glass-panel').classList.add('scale-100');
-            });
-
-            const close = () => {
-                modal.classList.add('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-100');
-                modal.querySelector('.glass-panel').classList.add('scale-95');
-                setTimeout(() => modal.remove(), 300);
-            };
-
-            modal.querySelector('#earn-close').onclick = close;
-        }
-
-        function verifyDriver() {
-            const lic = document.getElementById('d-lic').value;
-            if(!lic) {
-                return;
-            }
-            document.getElementById('driver-onboarding').classList.add('hidden');
-            document.getElementById('driver-dashboard').classList.remove('hidden');
-        }
-
-        function acceptGig(btn, amt, title) {
-            btn.textContent = "Completed! ✓";
-            btn.className = "bg-green-500 text-white px-4 py-2.5 rounded-xl font-extrabold text-xs shadow-sm cursor-default";
-            
-            const walletEl = document.getElementById('driver-wallet');
-            if(walletEl) {
-                let current = parseInt(walletEl.textContent.replace('₹', '')) || 450;
-                current += amt;
-                walletEl.textContent = '₹' + current;
-            }
-
-            setTimeout(() => {
-                showGlassModal('Gig Completed Successfully!', `<p>You successfully parked the vehicle at the mesh hub for <b>${title}</b>.<br><span class='text-green-600 font-extrabold text-base'>+₹${amt} added to your earnings!</span></p>`, 'Awesome');
-            }, 500);
-        }
-
-        function showCRGOValetModal() {
-            const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 z-[2000] flex items-center justify-center px-4 bg-gray-900/40 backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-auto';
-            
-            modal.innerHTML = `
-                <div class="glass-panel w-full max-w-sm rounded-[32px] p-7 shadow-2xl transform scale-95 transition-transform duration-300 border border-white/60 bg-white/90">
-                    <div class="w-14 h-14 rounded-full bg-rapido flex items-center justify-center mb-4 mx-auto shadow-lg border-4 border-white">
-                        <i class="ph-fill ph-steering-wheel text-3xl text-black"></i>
-                    </div>
-                    <h3 class="text-2xl font-extrabold text-center text-gray-900 mb-1 tracking-tight">CRGO Valet Mesh</h3>
-                    <p class="text-xs text-center text-gray-500 font-bold mb-5">Active Dispatch Timeline</p>
-
-                    <div class="space-y-4 mb-6 text-left text-sm">
-                        <div class="flex items-start gap-3">
-                            <div class="w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0 font-bold text-xs mt-0.5 shadow-sm">✓</div>
-                            <div>
-                                <div class="font-extrabold text-gray-900">1. Valet Driver Assigned</div>
-                                <div class="text-xs text-gray-500">Verified driver Ramesh is 400m away from your pin.</div>
-                            </div>
-                        </div>
-                        <div class="flex items-start gap-3">
-                            <div class="w-7 h-7 rounded-full bg-rapido text-black flex items-center justify-center shrink-0 font-bold text-xs mt-0.5 shadow-sm animate-pulse">2</div>
-                            <div>
-                                <div class="font-extrabold text-gray-900">2. Secure Key Drop</div>
-                                <div class="text-xs text-gray-500">Vehicle transferred to nearest 1km-3km Dark Garage Hub.</div>
-                            </div>
-                        </div>
-                        <div class="flex items-start gap-3">
-                            <div class="w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">3</div>
-                            <div>
-                                <div class="font-semibold text-gray-400">3. On-Demand Return</div>
-                                <div class="text-xs text-gray-400">Tap return anytime to summon your car back.</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex gap-3">
-                        <button id="modal-cancel-valet" class="flex-1 py-3.5 rounded-2xl font-bold text-gray-700 bg-white/80 hover:bg-white shadow-sm border border-gray-200 transition-all">Close</button>
-                        <button id="modal-confirm-valet" class="flex-1 py-3.5 rounded-2xl font-bold text-black bg-rapido shadow-lg hover:scale-105 transition-all">Track Driver</button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-            requestAnimationFrame(() => {
-                modal.classList.remove('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-95');
-                modal.querySelector('.glass-panel').classList.add('scale-100');
-            });
-
-            const close = () => {
-                modal.classList.add('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-100');
-                modal.querySelector('.glass-panel').classList.add('scale-95');
-                setTimeout(() => modal.remove(), 300);
-            };
-
-            modal.querySelector('#modal-cancel-valet').onclick = close;
-            modal.querySelector('#modal-confirm-valet').onclick = () => {
-                modal.querySelector('.glass-panel').innerHTML = `
-                    <div class="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center mb-5 mx-auto shadow-lg border-4 border-white">
-                        <i class="ph-fill ph-check-circle text-3xl text-white"></i>
-                    </div>
-                    <h3 class="text-2xl font-extrabold text-center text-gray-900 mb-2 tracking-tight">Driver Dispatched!</h3>
-                    <p class="text-center text-gray-600 mb-6 font-medium text-sm">Ramesh has accepted your dispatch request and is en route.</p>
-                    <button id="modal-done" class="w-full py-3.5 rounded-2xl font-bold text-white bg-black shadow-lg hover:scale-105 transition-all">Done</button>
-                `;
-                modal.querySelector('#modal-done').onclick = close;
-            };
-        }
-
-        function showGlassModal(title, message, confirmText = 'Confirm') {
-            const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 z-[2000] flex items-center justify-center px-4 bg-gray-900/40 backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-auto';
-            
+            modal.className = 'fixed inset-0 z-[5000] flex items-center justify-center px-4 bg-gray-900/40 backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-auto';
             modal.innerHTML = `
                 <div class="glass-panel w-full max-w-sm rounded-[32px] p-7 shadow-2xl transform scale-95 transition-transform duration-300 border border-white/60 bg-white/80">
-                    <div class="w-14 h-14 rounded-full bg-rapido flex items-center justify-center mb-5 mx-auto shadow-lg border-4 border-white">
-                        <i class="ph-fill ph-check-circle text-3xl text-black"></i>
-                    </div>
+                    <div class="w-14 h-14 rounded-full bg-rapido flex items-center justify-center mb-5 mx-auto shadow-lg border-4 border-white"><i class="ph-fill ph-check-circle text-3xl text-black"></i></div>
                     <h3 class="text-2xl font-extrabold text-center text-gray-900 mb-3 tracking-tight">${title}</h3>
-                    <div class="text-center text-gray-600 mb-8 font-medium leading-relaxed" id="glass-modal-message">${message}</div>
+                    <div class="text-center text-gray-600 mb-8 font-medium leading-relaxed">${message}</div>
                     <div class="flex gap-3">
                         <button id="modal-cancel" class="flex-1 py-3.5 rounded-2xl font-bold text-gray-700 bg-white/80 hover:bg-white shadow-sm border border-gray-200 transition-all">Cancel</button>
                         <button id="modal-confirm" class="flex-1 py-3.5 rounded-2xl font-bold text-black bg-rapido shadow-lg hover:scale-105 transition-all">${confirmText}</button>
                     </div>
-                </div>
-            `;
-            
+                </div>`;
             document.body.appendChild(modal);
-            
-            requestAnimationFrame(() => {
-                modal.classList.remove('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-95');
-                modal.querySelector('.glass-panel').classList.add('scale-100');
-            });
-
-            const close = () => {
-                modal.classList.add('opacity-0');
-                modal.querySelector('.glass-panel').classList.remove('scale-100');
-                modal.querySelector('.glass-panel').classList.add('scale-95');
-                setTimeout(() => modal.remove(), 300);
-            };
-
+            requestAnimationFrame(() => { modal.classList.remove('opacity-0'); modal.querySelector('.glass-panel').classList.remove('scale-95'); modal.querySelector('.glass-panel').classList.add('scale-100'); });
+            const close = () => { modal.classList.add('opacity-0'); setTimeout(() => modal.remove(), 300); };
             modal.querySelector('#modal-cancel').onclick = close;
-            modal.querySelector('#modal-confirm').onclick = () => {
-                const msgEl = modal.querySelector('#glass-modal-message');
-                
-                msgEl.innerHTML = `
-                    <div class="flex flex-col items-center gap-3 my-4">
-                        <i class="ph-bold ph-spinner animate-spin text-4xl text-rapido"></i>
-                        <p class="text-sm font-bold text-gray-900">Encrypting order...</p>
-                        <p class="text-xs font-medium text-gray-500">Connecting to CRGO Secure Backend</p>
-                    </div>
-                `;
-                modal.querySelector('#modal-confirm').style.display = 'none';
-                modal.querySelector('#modal-cancel').style.display = 'none';
-
-                setTimeout(() => {
-                    const secureToken = "CRG-" + btoa(Date.now().toString()).slice(-8).toUpperCase() + "-" + Math.random().toString(36).substring(2, 6).toUpperCase();
-                    const driverPin = Math.floor(1000 + Math.random() * 9000);
-
-                    msgEl.innerHTML = `
-                        <div class='text-green-600 font-extrabold text-xl mb-2'>Slot Reserved Securely!</div>
-                        
-                        <div class="bg-gray-100 p-4 rounded-2xl text-left space-y-4 mt-4 border border-gray-200 shadow-inner">
-                            <div class="flex justify-between items-center">
-                                <div>
-                                    <div class="text-[10px] text-gray-500 uppercase font-extrabold tracking-wider">Valet Handoff PIN</div>
-                                    <div class="text-[11px] font-semibold text-gray-700 leading-tight mt-0.5">Share ONLY this with driver</div>
-                                </div>
-                                <div class="text-2xl font-black tracking-widest text-gray-900 bg-white px-3 py-1.5 rounded-xl shadow-sm border border-gray-200">${driverPin}</div>
-                            </div>
-                            
-                            <div class="border-t border-gray-300 pt-4">
-                                <div class="text-[10px] text-gray-500 uppercase font-extrabold flex items-center gap-1.5 tracking-wider">
-                                    <i class="ph-fill ph-lock-key text-gray-700 text-sm"></i> Backend Hub Token
-                                </div>
-                                <div class="text-[11px] font-mono bg-gray-900 text-green-400 p-3 rounded-xl mt-2 break-all select-all shadow-inner border border-gray-800 tracking-wider">
-                                    ${secureToken}
-                                </div>
-                                <div class="text-[9px] text-gray-500 mt-2 leading-relaxed font-medium">This encrypted token secures your vehicle data & mesh route. Drivers cannot read this. Only the Dark Hub automated scanner can decrypt it.</div>
-                            </div>
-                        </div>
-                    `;
-                    modal.querySelector('#modal-cancel').textContent = 'Done';
-                    modal.querySelector('#modal-cancel').className = "w-full py-4 rounded-2xl font-extrabold text-white bg-black shadow-xl hover:scale-105 transition-all mt-2";
-                    modal.querySelector('#modal-cancel').style.display = 'block';
-                }, 2000);
-            };
+            modal.querySelector('#modal-confirm').onclick = () => { alert("Action Confirmed!"); close(); };
         }
     </script>
 </body>
