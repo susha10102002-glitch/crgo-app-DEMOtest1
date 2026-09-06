@@ -1,1055 +1,538 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>CRGO - Mumbai 100-Mesh Network</title>
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Menu, Plus, ImagePlus, Send, X, Download, 
+  Sparkles, Loader2, Image as ImageIcon,
+  Wand2, Settings
+} from 'lucide-react';
+
+// --- Configuration ---
+// In a real app, use import.meta.env.VITE_GEMINI_API_KEY
+const DEFAULT_API_KEY = ""; 
+
+// Exponential backoff fetcher for robust API calls
+const fetchWithRetry = async (url, options, retries = 5) => {
+  const delays = [1000, 2000, 4000, 8000, 16000];
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`HTTP error! status: ${response.status} - ${errorData?.error?.message || 'Unknown error'}`);
+      }
+      return await response.json();
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(res => setTimeout(res, delays[i]));
+    }
+  }
+};
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = error => reject(error);
+});
+
+export default function App() {
+  const [apiKey, setApiKey] = useState(DEFAULT_API_KEY);
+  const [showApiModal, setShowApiModal] = useState(!DEFAULT_API_KEY);
+  const [messages, setMessages] = useState([]);
+  const [inputValue, setInputValue] = useState("");
+  const [attachedImage, setAttachedImage] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [useStudioStyle, setUseStudioStyle] = useState(true); // Studio Photo style default ON
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isGenerating]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [inputValue]);
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    if (!file.type.startsWith('image/')) {
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        role: 'model',
+        type: 'error',
+        text: 'Please upload a valid image file (JPEG, PNG, etc).'
+      }]);
+      return;
+    }
 
-    <style>
-        :root {
-            --rapido-yellow: #F9C111;
-            --rapido-dark: #212121;
+    try {
+      const base64 = await fileToBase64(file);
+      setAttachedImage(base64);
+    } catch (err) {
+      console.error("Error reading file:", err);
+    }
+    e.target.value = ''; // Reset input
+  };
+
+  const removeAttachedImage = () => {
+    setAttachedImage(null);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  // Uses Gemini 2.5 Flash Preview to enhance simple prompts into detailed cinematic descriptions
+  const handleEnhancePrompt = async () => {
+    if (!inputValue.trim() || isEnhancing) return;
+    if (!apiKey) return setShowApiModal(true);
+    
+    setIsEnhancing(true);
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [{ parts: [{ text: `You are an expert prompt engineer. Enhance this short image generation prompt to be highly detailed, cinematic, and descriptive. Return ONLY the new prompt text, no intro/outro or quotes: "${inputValue}"` }] }]
+      };
+      
+      const data = await fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      const enhancedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (enhancedText) {
+        setInputValue(enhancedText.trim().replace(/^"|"$/g, ''));
+      }
+    } catch (err) {
+      console.error("Enhance prompt error:", err);
+    } finally {
+      setIsEnhancing(false);
+    }
+  };
+
+  // Core generation logic supporting both Image Edit (Flash Image) and Text-to-Image (Imagen)
+  const generateImageContent = async (prompt, image) => {
+    const isEditing = !!image;
+    
+    if (isEditing) {
+      // Image Editing Route -> gemini-2.5-flash-image-preview
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
+      const cleanBase64 = image.split(',')[1];
+      
+      // Safely extract MIME type to fix previous RegEx typo bugs
+      const mimeMatch = image.match(/data:(.*?);/);
+      const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+
+      const payload = {
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: mimeType, data: cleanBase64 } }
+          ]
+        }],
+        generationConfig: {
+          responseModalities: ['TEXT', 'IMAGE']
         }
+      };
 
-        body {
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            background-color: #f3f4f6;
-        }
+      const data = await fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-        #map {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            width: 100%;
-            z-index: 1;
-        }
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      const imgPart = parts.find(p => p.inlineData);
+      const textPart = parts.find(p => p.text);
 
-        /* Glassmorphism Utilities - iOS Style */
-        .glass-panel {
-            background: rgba(255, 255, 255, 0.82);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-top: 1px solid rgba(255, 255, 255, 0.7);
-            border-left: 1px solid rgba(255, 255, 255, 0.7);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-        }
+      if (!imgPart?.inlineData?.data) throw new Error("No image returned from the editing model.");
+      
+      return {
+        image: `data:${imgPart.inlineData.mimeType || 'image/jpeg'};base64,${imgPart.inlineData.data}`,
+        text: textPart?.text || "Here is your studio edited image."
+      };
 
-        .glass-card {
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.8);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-            transition: all 0.3s ease;
-        }
+    } else {
+      // Text-Only Generation Route -> imagen-4.0-generate-001
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+      const payload = {
+        instances: { prompt: prompt },
+        parameters: { sampleCount: 1 }
+      };
 
-        .glass-card.active {
-            border: 2px solid var(--rapido-yellow);
-            box-shadow: 0 8px 32px rgba(249, 193, 17, 0.2);
-            transform: scale(1.02);
-        }
+      const data = await fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-        /* Map Marker Styles */
-        .custom-marker {
-            background-color: white;
-            border-radius: 50%;
-            width: 38px !important;
-            height: 38px !important;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            color: var(--rapido-dark);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            border: 2px solid white;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            cursor: pointer;
-            position: relative;
-        }
+      const imgData = data.predictions?.[0]?.bytesBase64Encoded;
+      if (!imgData) throw new Error("No image generated from the model.");
+      
+      return {
+        image: `data:image/png;base64,${imgData}`,
+        text: "Here is your generated image."
+      };
+    }
+  };
 
-        .custom-marker:hover, .custom-marker.active-marker {
-            transform: scale(1.2);
-            z-index: 1000 !important;
-            background-color: var(--rapido-dark);
-            color: var(--rapido-yellow);
-        }
+  const handleSubmit = async () => {
+    if (!apiKey) return setShowApiModal(true);
+    if ((!inputValue.trim() && !attachedImage) || isGenerating) return;
 
-        .marker-ev-combo {
-            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%) !important;
-            color: white !important;
-            border-color: #ffffff !important;
-            box-shadow: 0 4px 16px rgba(34, 197, 94, 0.5);
-        }
-        
-        .marker-cloud {
-            background: linear-gradient(135deg, #a855f7 0%, #4f46e5 100%) !important;
-            color: white !important;
-            border-color: #ffffff !important;
-            box-shadow: 0 4px 16px rgba(168, 85, 247, 0.5);
-        }
+    let displayPrompt = inputValue.trim();
+    let finalPromptText = inputValue.trim() || (attachedImage ? "Enhance this image" : "");
+    
+    // Inject highly-refined constraint logic for Shree Kala Kendra photoshoots
+    if (useStudioStyle) {
+      const styleSuffix = ". Transform this raw photo into a high-end professional studio photoshoot. Keep the main subject, its pose, alignment, and proportions completely intact. Replace the entire background with a completely plain, smooth, and elegant studio backdrop (use a solid dark color or a very subtle, soft studio gradient spotlight effect, such as deep purple, warm brown, or dark grey). Do NOT add or generate any extra idols, figures, patterns, or objects in the background; the background must be 100% empty and uncluttered to isolate the main subject. Apply soft, dramatic professional studio lighting to the subject, enhancing the richness, contrast, and vibrancy of the colors and gold jewelry. Crucially, strictly preserve the rectangular base/pedestal the idol is sitting on (especially the characteristic blue, purple, or grey platform); do not remove or alter the base.";
+      finalPromptText = finalPromptText + styleSuffix;
+      
+      if (!displayPrompt) {
+        displayPrompt = "Applying Pro Studio Edit...";
+      }
+    }
 
-        .pulse-ring::after {
-            content: '';
-            position: absolute;
-            top: -6px;
-            left: -6px;
-            right: -6px;
-            bottom: -6px;
-            border-radius: 50%;
-            border: 2px solid #ef4444;
-            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-        }
+    const userMessage = {
+      id: Date.now(),
+      role: 'user',
+      text: displayPrompt,
+      apiText: finalPromptText,
+      attachedImage: attachedImage
+    };
 
-        @keyframes pulse-ring {
-            0% { transform: scale(0.95); opacity: 0.8; }
-            50% { transform: scale(1.2); opacity: 0.4; }
-            100% { transform: scale(0.95); opacity: 0; }
-        }
+    setMessages(prev => [...prev, userMessage]);
+    setInputValue("");
+    setAttachedImage(null);
+    setIsGenerating(true);
 
-        .bg-rapido { background-color: var(--rapido-yellow); }
-        .text-rapido { color: var(--rapido-yellow); }
-        
-        #bottom-sheet {
-            position: absolute;
-            bottom: 0;
-            width: 100%;
-            height: 85vh;
-            z-index: 1000;
-            border-radius: 36px 36px 0 0;
-            box-shadow: -10px 40px rgba(0,0,0,0.12);
-            display: flex;
-            flex-direction: column;
-            transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-        }
+    const loadingId = Date.now() + 1;
+    setMessages(prev => [...prev, { id: loadingId, role: 'model', type: 'loading' }]);
 
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    try {
+      const result = await generateImageContent(userMessage.apiText || "Enhance this image", userMessage.attachedImage);
+      
+      setMessages(prev => prev.map(msg => 
+        msg.id === loadingId 
+          ? { id: loadingId, role: 'model', type: 'result', text: result.text, image: result.image }
+          : msg
+      ));
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => prev.map(msg => 
+        msg.id === loadingId 
+          ? { id: loadingId, role: 'model', type: 'error', text: `Failed to process request: ${error.message}` }
+          : msg
+      ));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-        .floating-top {
-            position: absolute;
-            top: 0;
-            width: 100%;
-            z-index: 1000;
-            padding: 20px;
-            pointer-events: none;
-        }
+  const handleDownload = (imgSrc, index) => {
+    const link = document.createElement('a');
+    link.href = imgSrc;
+    link.download = `shree-kala-kendra-${index}-${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-        #locate-container {
-            position: absolute;
-            right: 20px;
-            z-index: 1000;
-            transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-        }
-
-        /* Sidebar Styles */
-        #sidebar {
-            transform: translateX(-100%);
-            transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
-        }
-        #sidebar.open {
-            transform: translateX(0);
-        }
-        #sidebar-overlay {
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.35s ease;
-        }
-        #sidebar-overlay.open {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        /* ── AUTH SCREEN: Glass & Brand Colors ── */
-        #auth-screen {
-            position: fixed;
-            inset: 0;
-            z-index: 5000;
-            background: radial-gradient(ellipse at 30% 20%, #2a2a2a 0%, #111111 40%, #000000 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            transition: opacity 0.5s ease, visibility 0.5s ease;
-        }
-        
-        @media (pointer: fine) {
-            #auth-screen, #auth-screen * { cursor: none !important; }
-        }
-
-        /* Custom crosshair */
-        #crosshair { position: fixed; pointer-events: none; z-index: 9999; transform: translate(-50%, -50%); display: none; }
-        @media (pointer: fine) { #crosshair { display: block; } }
-        #crosshair .ch-ring { width: 36px; height: 36px; border: 1.5px solid rgba(249,193,17,0.85); border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); transition: width 0.2s, height 0.2s, opacity 0.2s, border-color 0.2s; }
-        #crosshair .ch-dot { width: 5px; height: 5px; background: var(--rapido-yellow); border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-        #crosshair .ch-line-h, #crosshair .ch-line-v { position: absolute; background: rgba(249,193,17,0.5); top: 50%; left: 50%; }
-        #crosshair .ch-line-h { width: 18px; height: 1px; transform: translate(-50%, -50%); }
-        #crosshair .ch-line-v { width: 1px; height: 18px; transform: translate(-50%, -50%); }
-        #auth-screen.hovering #crosshair .ch-ring { width: 52px; height: 52px; opacity: 0.8; border-color: #fff; }
-
-        /* Mouse spotlight */
-        #spotlight { position: fixed; pointer-events: none; z-index: 1; width: 520px; height: 520px; border-radius: 50%; background: radial-gradient(circle, rgba(249, 193, 17, 0.08) 0%, transparent 70%); transform: translate(-50%, -50%); }
-
-        /* Floating blobs (Brand Theme) */
-        .auth-bg { position: absolute; inset: 0; z-index: 0; }
-        .blob { position: absolute; opacity: 0.65; animation: float 8s ease-in-out infinite; will-change: transform; }
-        .blob-1 { width: 110px; height: 110px; background: linear-gradient(135deg, #F9C111, #d97706); top: 10%; left: 30%; border-radius: 60% 40% 70% 30% / 50% 60% 40% 50%; animation-duration: 9s; }
-        .blob-2 { width: 80px; height: 80px; background: linear-gradient(135deg, #fef08a, #F9C111); top: 8%; left: 34%; border-radius: 40% 60% 30% 70% / 60% 40% 70% 30%; animation-duration: 7s; animation-delay: -2s; }
-        .blob-3 { width: 90px; height: 150px; background: linear-gradient(160deg, #ca8a04, #F9C111); top: 25%; right: 15%; border-radius: 40% 60% 55% 45% / 50% 35% 65% 50%; animation-duration: 11s; animation-delay: -4s; }
-        .blob-4 { width: 140px; height: 70px; background: linear-gradient(120deg, #F9C111, #ca8a04); bottom: 18%; right: 13%; border-radius: 60% 40% 40% 60% / 50% 50% 50% 50%; animation-duration: 10s; animation-delay: -1s; }
-        .blob-5 { width: 100px; height: 100px; background: linear-gradient(135deg, #d97706, #92400e); bottom: 22%; left: 14%; border-radius: 50% 50% 30% 70% / 60% 40% 60% 40%; animation-duration: 13s; animation-delay: -5s; opacity: 0.45; }
-        .blob-6 { width: 200px; height: 100px; background: linear-gradient(120deg, #fcd34d, #F9C111); bottom: 10%; right: 30%; border-radius: 50% 50% 60% 40% / 40% 60% 40% 60%; animation-duration: 12s; animation-delay: -3s; opacity: 0.35; }
-        .blob-7 { width: 300px; height: 300px; background: transparent; border: 2px solid rgba(249, 193, 17, 0.15); bottom: 5%; left: -5%; border-radius: 40% 60% 55% 45%; animation-duration: 16s; }
-        .blob-8 { width: 90px; height: 55px; background: linear-gradient(135deg, #fde68a, #f59e0b); top: 60%; right: 9%; border-radius: 50% 50% 40% 60% / 60% 40% 60% 40%; animation-duration: 8s; animation-delay: -6s; opacity: 0.5; }
-
-        @keyframes float { 0%, 100% { transform: translateY(0) rotate(0deg); } 33% { transform: translateY(-14px) rotate(3deg); } 66% { transform: translateY(8px) rotate(-2deg); } }
-
-        /* Glass Panel */
-        .auth-panel { position: relative; z-index: 10; background: rgba(30, 30, 30, 0.4); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(249, 193, 17, 0.2); border-radius: 24px; padding: 40px 36px 32px; width: 100%; max-width: 360px; box-shadow: 0 12px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05); }
-        .auth-panel .logo { text-align: center; margin-bottom: 24px; }
-        .auth-panel .logo-mark { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 50%; background: var(--rapido-yellow); box-shadow: 0 0 20px rgba(249,193,17,0.3); margin-bottom: 8px; }
-        .auth-panel .logo-text { font-size: 13px; color: rgba(255,255,255,0.7); letter-spacing: 0.03em; font-weight: 600; }
-        .auth-panel h1 { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 22px; }
-        
-        .auth-field { margin-bottom: 16px; text-align: left; }
-        .auth-field label { display: block; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .auth-field input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 14px; outline: none; transition: all 0.2s; }
-        .auth-field input::placeholder { color: rgba(255,255,255,0.3); }
-        .auth-field input:focus { border-color: var(--rapido-yellow); box-shadow: 0 0 0 3px rgba(249,193,17,0.15); background: rgba(0,0,0,0.5); }
-        
-        .pw-wrapper { position: relative; }
-        .pw-wrapper input { padding-right: 38px; }
-        .pw-toggle { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 4px; color: rgba(255,255,255,0.5); display: flex; align-items: center; }
-        .pw-toggle svg { width: 18px; height: 18px; }
-        .auth-forgot { display: block; text-align: right; font-size: 11px; color: rgba(255,255,255,0.5); text-decoration: none; margin-top: 8px; transition: color 0.2s; }
-        .auth-forgot:hover { color: var(--rapido-yellow); }
-
-        .btn-signin { width: 100%; margin-top: 20px; padding: 14px; border-radius: 12px; border: none; background: var(--rapido-yellow); color: var(--rapido-dark); font-size: 15px; font-weight: 700; transition: all 0.2s; box-shadow: 0 4px 12px rgba(249,193,17,0.2); }
-        .btn-signin:hover { background: #eab308; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(249,193,17,0.3); }
-        .btn-signin:active { transform: scale(0.98); }
-
-        .auth-divider { display: flex; align-items: center; gap: 10px; margin: 24px 0 20px; color: rgba(255,255,255,0.3); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
-        .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
-
-        .auth-socials { display: flex; gap: 12px; justify-content: center; }
-        .btn-social { flex: 1; display: flex; align-items: center; justify-content: center; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); transition: all 0.2s; }
-        .btn-social:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); transform: translateY(-1px); }
-        .btn-social:active { transform: scale(0.97); }
-        .btn-social svg { width: 20px; height: 20px; }
-
-        .auth-register { text-align: center; margin-top: 24px; font-size: 12px; color: rgba(255,255,255,0.5); }
-        .auth-register a { color: var(--rapido-yellow); font-weight: 600; text-decoration: none; }
-        .auth-register a:hover { text-decoration: underline; }
-
-        .auth-ripple { position: fixed; border-radius: 50%; pointer-events: none; background: rgba(249,193,17,0.2); transform: scale(0); animation: ripple-out 0.6s ease-out forwards; z-index: 9998; }
-        @keyframes ripple-out { to { transform: scale(1); opacity: 0; } }
-    </style>
-</head>
-<body>
-
-    <!-- AUTH LOGIN SCREEN -->
-    <div id="auth-screen">
-        <!-- Custom crosshair -->
-        <div id="crosshair">
-            <div class="ch-ring"></div>
-            <div class="ch-dot"></div>
-            <div class="ch-line-h"></div>
-            <div class="ch-line-v"></div>
+  return (
+    <div className="flex h-screen w-full bg-[#131314] text-[#e3e3e3] font-sans overflow-hidden">
+      
+      {/* API Key Modal Fallback */}
+      {showApiModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#1e1f20] border border-gray-700 p-6 rounded-2xl max-w-md w-full shadow-2xl">
+            <h2 className="text-xl font-semibold mb-2 text-white">Enter Gemini API Key</h2>
+            <p className="text-gray-400 text-sm mb-4">You need an API key from Google AI Studio to power the image generation and editing models.</p>
+            <input 
+              type="password" 
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="AIzaSy..."
+              className="w-full bg-[#131314] border border-gray-600 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500 mb-4"
+            />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowApiModal(false)} className="px-4 py-2 text-gray-400 hover:text-white transition-colors">Cancel</button>
+              <button onClick={() => setShowApiModal(false)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors">Save Key</button>
+            </div>
+          </div>
         </div>
+      )}
 
-        <!-- Mouse spotlight -->
-        <div id="spotlight"></div>
-
-        <!-- Animated Background Blobs -->
-        <div class="auth-bg">
-            <div class="blob blob-1" data-speed="0.04"></div>
-            <div class="blob blob-2" data-speed="0.06"></div>
-            <div class="blob blob-3" data-speed="0.03"></div>
-            <div class="blob blob-4" data-speed="0.05"></div>
-            <div class="blob blob-5" data-speed="0.02"></div>
-            <div class="blob blob-6" data-speed="0.035"></div>
-            <div class="blob blob-7" data-speed="0.015"></div>
-            <div class="blob blob-8" data-speed="0.055"></div>
+      {/* Sidebar */}
+      <div className={`${isSidebarOpen ? 'w-64' : 'w-0'} transition-all duration-300 ease-in-out bg-[#1e1f20] flex flex-col overflow-hidden shrink-0 border-r border-gray-800`}>
+        <div className="p-4 flex flex-col h-full">
+          <button 
+            onClick={() => setMessages([])}
+            className="flex items-center gap-3 bg-[#131314] hover:bg-[#282a2c] text-sm font-medium py-3 px-5 rounded-full transition-colors w-max shadow-sm border border-gray-800/50"
+          >
+            <Plus size={18} />
+            <span>New generation</span>
+          </button>
+          
+          <div className="mt-8 flex-1 overflow-y-auto">
+            <h3 className="text-xs font-semibold text-gray-500 mb-3 px-2 uppercase tracking-wider">Recent Studio Edits</h3>
+            <div className="space-y-1">
+              {messages.filter(m => m.role === 'user' && m.text).slice(0, 8).map((msg, idx) => (
+                <button key={idx} className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#282a2c] text-sm text-gray-300 truncate transition-colors">
+                  <ImageIcon size={16} className="shrink-0 text-blue-400/70" />
+                  <span className="truncate">{msg.text}</span>
+                </button>
+              ))}
+              {messages.length === 0 && (
+                <p className="text-xs text-gray-500 px-2 italic mt-4">No recent edits</p>
+              )}
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div class="auth-panel" id="panel">
-            <div class="logo">
-                <div class="logo-mark">
-                    <i class="ph-bold ph-car-profile text-2xl text-black"></i>
-                </div>
-                <div class="logo-text">CRGO Network</div>
-            </div>
-
-            <h1>Login</h1>
-
-            <div class="auth-field">
-                <label>Email</label>
-                <input type="email" placeholder="username@gmail.com" autocomplete="email"/>
-            </div>
-
-            <div class="auth-field">
-                <label>Password</label>
-                <div class="pw-wrapper">
-                    <input type="password" id="password-input" placeholder="••••••••" autocomplete="current-password"/>
-                    <button class="pw-toggle" onclick="togglePw()" type="button" title="Toggle Password">
-                        <svg id="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                        </svg>
-                    </button>
-                </div>
-                <a href="#" class="auth-forgot">Forgot Password?</a>
-            </div>
-
-            <button id="main-signin-btn" class="btn-signin" type="button">Sign in</button>
-
-            <div class="auth-divider">or continue with</div>
-
-            <div class="auth-socials">
-                <button id="btn-google-signin" class="btn-social" aria-label="Sign in with Google" type="button" title="Google Sign In">
-                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5">
-                </button>
-                <button id="btn-demo-signin" class="btn-social" aria-label="Demo Sign In" type="button" title="Investor Demo Login">
-                    <i class="ph-bold ph-rocket text-xl text-gray-300 group-hover:text-white transition-colors"></i>
-                </button>
-                <button class="btn-social opacity-50 cursor-not-allowed" aria-label="Sign in with Facebook" type="button">
-                    <svg viewBox="0 0 24 24" fill="#1877F2" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073c0 6.027 4.388 11.024 10.125 11.927v-8.437H7.078v-3.49h3.047V9.43c0-3.007 1.792-4.669 4.532-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.49h-2.796v8.437C19.612 23.097 24 18.1 24 12.073z"/>
-                    </svg>
-                </button>
-            </div>
-
-            <div id="auth-error" role="alert" aria-live="polite" class="text-red-400 text-[11px] font-bold mt-4 text-center hidden"></div>
-
-            <p class="auth-register">
-                Don't have an account yet? <a href="#">Register for free</a>
-            </p>
-        </div>
-    </div>
-
-    <!-- MAIN APP LAYER -->
-    <div id="app-container" class="hidden w-full h-full relative">
-        <div id="map"></div>
-
-        <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[2500]"></div>
-
-        <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-[300px] bg-white/95 backdrop-blur-2xl z-[2600] shadow-2xl flex flex-col justify-between border-r border-white/80 p-6 overflow-y-auto">
-            <div class="space-y-6">
-                <div class="flex justify-between items-center pb-4 border-b border-gray-100">
-                    <div class="flex items-center gap-3">
-                        <img id="sidebar-avatar" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" class="w-12 h-12 rounded-full shadow-md">
-                        <div>
-                            <div id="sidebar-name" class="font-extrabold text-gray-900 text-base">Loading...</div>
-                            <div class="text-xs text-green-600 font-semibold flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Connected</div>
-                        </div>
-                    </div>
-                    <button onclick="toggleSidebar()" class="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition cursor-pointer">
-                        <i class="ph-bold ph-x text-gray-700 text-lg"></i>
-                    </button>
-                </div>
-
-                <!-- Menu Navigation Links -->
-                <div class="space-y-2">
-                    <a href="#" onclick="toggleSidebar(); locateUser(); return false;" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-compass text-xl text-blue-600"></i> Find Nearby Pods
-                    </a>
-                    <a href="#" onclick="toggleSidebar(); showCRGOValetModal(); return false;" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-steering-wheel text-xl text-rapido"></i> Valet Mesh Drive
-                    </a>
-                    <a href="#" onclick="toggleSidebar(); showGlassModal('My Reservations', '<p>You have 1 active mesh parking reservation at <b>Colaba Causeway Pod #1</b>.</p>', 'Close'); return false;" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-ticket text-xl text-purple-600"></i> My Reservations
-                    </a>
-                    <a href="#" onclick="toggleSidebar(); showGlassModal('Wallet & Rewards', '<p>CRGO Wallet Balance: <b>₹450.00</b></p>', 'Add Funds'); return false;" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-gray-100 text-gray-800 font-bold text-sm transition">
-                        <i class="ph-bold ph-wallet text-xl text-green-600"></i> Wallet & Rewards
-                    </a>
-                    <a href="#" id="logout-btn" class="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-red-50 text-red-600 font-bold text-sm transition mt-4">
-                        <i class="ph-bold ph-sign-out text-xl"></i> Sign Out
-                    </a>
-                </div>
-            </div>
-            <div class="pt-4 border-t border-gray-100 text-center">
-                <div class="text-[11px] font-bold text-gray-400">CRGO Mumbai 100-Mesh v3.0</div>
-            </div>
-        </div>
-
-        <div class="floating-top flex flex-col gap-3">
-            <div class="flex justify-between items-start gap-4">
-                <button onclick="toggleSidebar()" class="glass-panel w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white/90 transition border border-white/60 cursor-pointer">
-                    <i class="ph-bold ph-list text-2xl text-gray-700"></i>
-                </button>
-
-                <button onclick="toggleSidebar()" class="glass-panel w-12 h-12 rounded-full p-1 pointer-events-auto shadow-lg overflow-hidden border border-white/60 cursor-pointer">
-                    <img id="top-avatar" src="https://ui-avatars.com/api/?name=User&background=F9C111&color=212121" class="w-full h-full rounded-full">
-                </button>
-            </div>
-
-            <div class="glass-panel mx-auto w-full max-w-md p-3.5 rounded-3xl pointer-events-auto shadow-xl flex items-center gap-3 cursor-text transition-all border border-white/70">
-                <div class="w-9 h-9 rounded-full bg-white/50 flex items-center justify-center shrink-0 shadow-sm border border-white/80">
-                    <i class="ph-bold ph-magnifying-glass text-lg text-gray-700"></i>
-                </div>
-                <div class="flex-1">
-                    <input type="text" id="search-input" placeholder="Search 2km-7km mesh dark garages..." class="bg-transparent border-none outline-none w-full text-[15px] text-gray-900 placeholder-gray-500 font-semibold" oninput="filterBySearch(this.value)">
-                </div>
-            </div>
-        </div>
-
-        <div id="locate-container" class="right-5 z-[1000] flex flex-col gap-3 pointer-events-none">
-            <button onclick="locateUser()" class="glass-panel bg-white/85 w-12 h-12 rounded-full flex items-center justify-center pointer-events-auto shadow-lg hover:bg-white transition border border-white/60 group cursor-pointer" title="Locate Me">
-                <i id="locate-icon" class="ph-bold ph-crosshair text-2xl text-gray-700 transition-colors group-hover:text-blue-600"></i>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col relative h-full min-w-0">
+        
+        {/* Top Header */}
+        <header className="h-16 flex items-center justify-between px-4 lg:px-6 shrink-0 bg-[#131314]/80 backdrop-blur-md z-10">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 hover:bg-[#282a2c] rounded-full transition-colors text-gray-400 hover:text-white"
+            >
+              <Menu size={20} />
             </button>
-        </div>
-
-        <div id="bottom-sheet" class="glass-panel">
-            <div id="drag-zone" class="w-full shrink-0 touch-none">
-                <div class="w-full flex justify-center pt-5 pb-4 cursor-grab active:cursor-grabbing">
-                    <div class="w-14 h-1.5 bg-gray-400/50 rounded-full"></div>
-                </div>
-                <div class="px-6 pb-2">
-                    <div class="flex justify-between items-center pointer-events-none">
-                        <h2 class="text-2xl font-extrabold text-gray-900 tracking-tight">100-Mesh Network</h2>
-                        <div class="text-[10px] uppercase font-bold tracking-wider text-gray-500 bg-white/50 px-3 py-1 rounded-full shadow-sm border border-white/60">Sorted by Nearest</div>
-                    </div>
-                    
-                    <div class="flex gap-3 mt-4 overflow-x-auto hide-scrollbar pb-2 pointer-events-auto" id="filter-container">
-                        <button id="btn-all" onclick="setFilter('all')" class="bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95 cursor-pointer">
-                            <i class="ph-fill ph-squares-four text-lg"></i> All Hubs
-                        </button>
-                        <button id="btn-parking" onclick="setFilter('parking')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95 cursor-pointer">
-                            <i class="ph-fill ph-car-profile text-lg text-blue-600"></i> CRGO Pods
-                        </button>
-                        <button id="btn-ev" onclick="setFilter('ev')" class="glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95 cursor-pointer">
-                            <i class="ph-fill ph-lightning text-lg text-green-600"></i> EV Hubs
-                        </button>
-                    </div>
-                </div>
+            <div className="flex items-center gap-3 cursor-pointer">
+              <span className="text-xl font-medium tracking-wide text-gray-200">Shree Kala Kendra</span>
+              <span className="text-xs font-bold bg-gradient-to-r from-blue-600 to-purple-600 text-white px-2 py-0.5 rounded-md shadow-sm">
+                Studio PRO
+              </span>
             </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setShowApiModal(true)} className="p-2 text-gray-400 hover:text-white hover:bg-[#282a2c] rounded-full transition-colors" title="Settings">
+              <Settings size={20} />
+            </button>
+            <div className="w-9 h-9 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-bold shadow-sm text-gray-300">
+              U
+            </div>
+          </div>
+        </header>
 
-            <div class="px-6 mt-3 pb-3 shrink-0">
-                <button onclick="showCRGOValetModal()" class="w-full bg-gray-900 text-white px-5 py-4 rounded-3xl font-bold flex items-center justify-between shadow-xl hover:scale-[1.02] transition-transform border border-gray-700 relative overflow-hidden pointer-events-auto cursor-pointer">
-                    <div class="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 opacity-50"></div>
-                    <div class="flex items-center gap-4 relative z-10">
-                        <div class="w-12 h-12 rounded-full bg-rapido text-black flex items-center justify-center shadow-inner shrink-0">
-                            <i class="ph-fill ph-steering-wheel text-2xl"></i>
-                        </div>
-                        <div class="text-left">
-                            <div class="text-[10px] uppercase tracking-widest text-rapido font-black mb-0.5 opacity-90">Citywide Mesh Dispatch</div>
-                            <div class="text-[17px] font-extrabold text-white tracking-wide leading-tight">CRGO Valet Mesh Drive</div>
-                        </div>
-                    </div>
-                    <div class="bg-white/10 w-10 h-10 rounded-full flex items-center justify-center relative z-10 backdrop-blur-sm border border-white/10">
-                        <i class="ph-bold ph-caret-right text-xl text-rapido"></i>
-                    </div>
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto px-4 pb-40 pt-4 w-full max-w-5xl mx-auto scroll-smooth">
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center max-w-2xl mx-auto mt-[-8vh]">
+              <div className="relative mb-8">
+                <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full"></div>
+                <div className="w-20 h-20 bg-gradient-to-br from-[#4285f4] via-[#9b72cb] to-[#d96570] rounded-2xl rotate-3 flex items-center justify-center shadow-xl shadow-purple-900/30 relative border border-white/10">
+                  <Sparkles size={36} className="text-white -rotate-3" />
+                </div>
+              </div>
+              <h1 className="text-4xl sm:text-5xl font-medium mb-5 bg-clip-text text-transparent bg-gradient-to-r from-gray-100 via-gray-300 to-gray-400">
+                AI Studio Editor
+              </h1>
+              <p className="text-gray-400 text-lg mb-10 max-w-lg leading-relaxed">
+                Upload raw idol photos to automatically clean backgrounds, fix lighting, and apply professional studio styling—or generate brand-new conceptual images.
+              </p>
+              
+              <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md justify-center">
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl p-4 transition-colors flex items-center justify-center gap-3 w-full shadow-lg shadow-blue-900/20 font-medium"
+                >
+                  <ImagePlus size={20} />
+                  Upload Raw Photo
                 </button>
+              </div>
             </div>
-
-            <div id="parking-list" class="flex-1 overflow-y-auto px-6 pb-8 space-y-4 hide-scrollbar pointer-events-auto">
-                <!-- Dynamic list -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Auth UI Animation Script -->
-    <script>
-        const authScreenUI = document.getElementById('auth-screen');
-        const crosshair = document.getElementById('crosshair');
-        const spotlight = document.getElementById('spotlight');
-        const blobs = document.querySelectorAll('.blob');
-        const interactiveEls = document.querySelectorAll('#auth-screen button, #auth-screen a, #auth-screen input');
-
-        authScreenUI.addEventListener('mousemove', e => {
-            if (authScreenUI.style.visibility === 'hidden') return;
-            const mx = e.clientX, my = e.clientY;
-            
-            if (crosshair) {
-                crosshair.style.left = mx + 'px';
-                crosshair.style.top  = my + 'px';
-            }
-            if (spotlight) {
-                spotlight.style.left = mx + 'px';
-                spotlight.style.top  = my + 'px';
-            }
-
-            const ox = mx - window.innerWidth  / 2;
-            const oy = my - window.innerHeight / 2;
-            blobs.forEach(b => {
-                const s = parseFloat(b.dataset.speed) || 0.04;
-                b.style.marginLeft = (ox * s) + 'px';
-                b.style.marginTop  = (oy * s) + 'px';
-            });
-        });
-
-        interactiveEls.forEach(el => {
-            el.addEventListener('mouseenter', () => authScreenUI.classList.add('hovering'));
-            el.addEventListener('mouseleave', () => authScreenUI.classList.remove('hovering'));
-        });
-
-        authScreenUI.addEventListener('click', e => {
-            if (authScreenUI.style.visibility === 'hidden') return;
-            const r = document.createElement('div');
-            r.className = 'auth-ripple';
-            const size = 80;
-            r.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - size/2}px;top:${e.clientY - size/2}px;`;
-            authScreenUI.appendChild(r);
-            setTimeout(() => r.remove(), 650);
-        });
-
-        window.togglePw = function() {
-            const input = document.getElementById('password-input');
-            const icon  = document.getElementById('eye-icon');
-            if (input.type === 'password') {
-                input.type = 'text';
-                icon.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>`;
-            } else {
-                input.type = 'password';
-                icon.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
-            }
-        }
-    </script>
-
-    <!-- Firebase Script -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-
-        const loginBtn = document.getElementById('btn-google-signin');
-        const demoLoginBtn = document.getElementById('btn-demo-signin');
-        const mainSigninBtn = document.getElementById('main-signin-btn');
-        const logoutBtn = document.getElementById('logout-btn');
-        const authScreen = document.getElementById('auth-screen');
-        const errorDiv = document.getElementById('auth-error');
-
-        // Demo Login Bypass Logic - Safely skips Firebase when running in preview
-        const executeDemoLogin = () => {
-            document.getElementById('sidebar-name').textContent = 'Investor Demo';
-            document.getElementById('sidebar-avatar').src = 'https://ui-avatars.com/api/?name=Investor+Demo&background=F9C111&color=212121';
-            document.getElementById('top-avatar').src = 'https://ui-avatars.com/api/?name=Investor+Demo&background=F9C111&color=212121';
-            
-            if(demoLoginBtn) demoLoginBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-gray-700"></i>';
-            if(mainSigninBtn) mainSigninBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
-            setTimeout(() => launchApp(), 600);
-        };
-
-        if (demoLoginBtn) demoLoginBtn.addEventListener('click', executeDemoLogin);
-        if (mainSigninBtn) mainSigninBtn.addEventListener('click', executeDemoLogin);
-
-        const defaultLoginMarkup = loginBtn ? loginBtn.innerHTML : '';
-        const showAuthError = (message) => {
-            errorDiv.textContent = message;
-            errorDiv.classList.remove('hidden');
-            errorDiv.style.display = 'block';
-        };
-        const clearAuthError = () => {
-            errorDiv.textContent = '';
-            errorDiv.classList.add('hidden');
-            errorDiv.style.display = 'none';
-        };
-        const getAuthErrorMessage = (error) => {
-            switch (error?.code) {
-                case 'auth/unauthorized-domain':
-                    return 'This domain is not authorized in Firebase. Add the current app domain under Firebase Authentication → Settings → Authorized domains.';
-                case 'auth/operation-not-allowed':
-                    return 'Google Sign-In is disabled in Firebase. Enable the Google provider under Authentication → Sign-in method.';
-                case 'auth/network-request-failed':
-                    return 'The authentication request could not reach Firebase. Check your network connection and try again.';
-                case 'auth/popup-closed-by-user':
-                    return 'The Google sign-in window was closed before authentication completed.';
-                case 'auth/popup-blocked':
-                    return 'The sign-in popup was blocked. Retrying with a full-page sign-in flow.';
-                default:
-                    return 'Google Sign-In failed. Check the Firebase Authentication provider and authorized domain settings, then try again.';
-            }
-        };
-
-        const embeddedPublicFirebaseConfig = {
-            apiKey: "AIzaSyAoMobiM5SVPvT7lm3oq2_s9JLqIkz4ACU",
-            authDomain: "crgo-259a5.firebaseapp.com",
-            projectId: "crgo-259a5",
-            storageBucket: "crgo-259a5.firebasestorage.app",
-            messagingSenderId: "1009898110308",
-            appId: "1:1009898110308:web:70083e3cd8eb22b7d00e71",
-            measurementId: "G-GLYGKJF06F"
-        };
-        const firebaseConfig = window.CRGO_FIREBASE_CONFIG || embeddedPublicFirebaseConfig;
-        const requiredConfigKeys = ['apiKey', 'authDomain', 'projectId', 'appId'];
-        const hasValidConfig = firebaseConfig &&
-            requiredConfigKeys.every((key) => typeof firebaseConfig[key] === 'string' && firebaseConfig[key].trim());
-
-        if (window.location.protocol === 'file:') {
-            loginBtn.disabled = true;
-            loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            showAuthError('Google Sign-In requires the app to be served from an HTTP(S) domain. Open the deployed CRGO URL instead of a local file.');
-        } else if (!hasValidConfig) {
-            loginBtn.disabled = true;
-            loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            showAuthError('Authentication is not configured for this deployment. Contact the CRGO administrator.');
-        } else {
-            try {
-                const app = initializeApp(firebaseConfig);
-                const auth = getAuth(app);
-                const provider = new GoogleAuthProvider();
-
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        document.getElementById('sidebar-name').textContent = user.displayName || 'CRGO User';
-                        if (user.photoURL) {
-                            document.getElementById('sidebar-avatar').src = user.photoURL;
-                            document.getElementById('top-avatar').src = user.photoURL;
-                        }
-                        launchApp();
-                    } else {
-                        authScreen.style.visibility = 'visible';
-                        authScreen.style.opacity = '1';
-                        document.getElementById('app-container').classList.add('hidden');
-                    }
-                }, (error) => {
-                    console.error('Firebase auth state error:', error);
-                    showAuthError('Unable to verify your session. Refresh and try again.');
-                });
-
-                getRedirectResult(auth).catch((error) => {
-                    console.error('Firebase redirect sign-in error:', error);
-                    showAuthError(getAuthErrorMessage(error));
-                });
-
-                loginBtn.addEventListener('click', async () => {
-                    loginBtn.disabled = true;
-                    loginBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-gray-700"></i>';
-                    clearAuthError();
-                    try {
-                        await signInWithPopup(auth, provider);
-                    } catch (error) {
-                        console.error('Firebase sign-in error:', error);
-                        if (error?.code === 'auth/popup-blocked' || error?.code === 'auth/popup-closed-by-user') {
-                            try {
-                                await signInWithRedirect(auth, provider);
-                                return;
-                            } catch (redirectError) {
-                                console.error('Firebase redirect fallback error:', redirectError);
-                                showAuthError(getAuthErrorMessage(redirectError));
-                            }
-                        } else {
-                            showAuthError(getAuthErrorMessage(error));
-                        }
-                    } finally {
-                        loginBtn.disabled = false;
-                        loginBtn.innerHTML = defaultLoginMarkup;
-                    }
-                });
-
-                logoutBtn.addEventListener('click', async (event) => {
-                    event.preventDefault();
-                    logoutBtn.classList.add('pointer-events-none', 'opacity-60');
-                    try {
-                        await signOut(auth);
-                        window.location.reload();
-                    } catch (error) {
-                        console.error('Firebase sign-out error:', error);
-                        logoutBtn.classList.remove('pointer-events-none', 'opacity-60');
-                        showGlassModal('Sign Out Failed', '<p>We could not end this session. Please try again.</p>', 'Close');
-                    }
-                });
-            } catch (error) {
-                console.error('Firebase initialization error:', error);
-                loginBtn.disabled = true;
-                loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                showAuthError('Authentication could not be initialized for this deployment.');
-            }
-        }
-    </script>
-
-    <!-- UI & MAP SCRIPT -->
-    <script>
-        function launchApp() {
-            const authScreen = document.getElementById('auth-screen');
-            authScreen.style.opacity = '0';
-            setTimeout(() => {
-                authScreen.style.visibility = 'hidden';
-                document.getElementById('app-container').classList.remove('hidden');
-                if(!map) {
-                    initMap();
-                } else {
-                    map.invalidateSize();
-                }
-            }, 500);
-        }
-
-        // CRGO Network Data
-        const parkingData = [
-            { id: 10, name: "CRGO Dark Garage - South", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 120, lat: 18.9250, lng: 72.8285, type: "hub" },
-            { id: 20, name: "CRGO Dark Garage - Central", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 180, lat: 19.0040, lng: 72.8220, type: "hub" },
-            { id: 30, name: "CRGO Dark Hub - Dadar", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 110, lat: 19.0220, lng: 72.8450, type: "hub" },
-            { id: 40, name: "CRGO Dark Garage - BKC", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 250, lat: 19.0630, lng: 72.8630, type: "hub" },
-            { id: 50, name: "CRGO Dark Hub - Kurla", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 140, lat: 19.0830, lng: 72.8870, type: "hub" },
-            { id: 60, name: "CRGO Dark Hub - Alpha", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.1015, lng: 72.8810, type: "hub" },
-            { id: 70, name: "CRGO Dark Hub - Powai", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 130, lat: 19.1110, lng: 72.8960, type: "hub" },
-            { id: 80, name: "CRGO Dark Hub - Western", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 150, lat: 19.1200, lng: 72.8320, type: "hub" },
-            { id: 90, name: "CRGO Dark Hub - North", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 170, lat: 19.1600, lng: 72.8450, type: "hub" },
-            { id: 100, name: "CRGO Dark Hub - Eastern", isCloudHub: true, category: "hub", hasEV: true, price: "Drop & Go", spots: 160, lat: 19.0880, lng: 72.9100, type: "hub" },
-            { id: 31, name: "BKC Central Hub Pod #1", category: "parking", hasEV: true, price: "₹55/hr", spots: 50, lat: 19.0660, lng: 72.8660, type: "indoor" },
-            { id: 37, name: "BKC G-Block Fast EV", category: "ev", hasEV: true, price: "₹22/kWh", spots: 5, lat: 19.0630, lng: 72.8690, type: "charging" },
-            { id: 41, name: "Kurla Phoenix Mall Pod", category: "parking", hasEV: true, price: "₹45/hr", spots: 30, lat: 19.0860, lng: 72.8890, type: "indoor" },
-            { id: 51, name: "Sakinaka Metro Pod #1", category: "parking", hasEV: true, price: "₹40/hr", spots: 15, lat: 19.0960, lng: 72.8860, type: "indoor" }
-        ];
-
-        let map = null;
-        let markers = {};
-        let markerLayerGroup = null;
-        let currentFilter = 'all';
-        let searchQuery = '';
-        let currentRouteLine = null;
-        let userMarker = null;
-        let routeRequestId = 0;
-        
-        let userLocation = [19.0988, 72.8838];
-        const sheet = document.getElementById('bottom-sheet');
-        const locateContainer = document.getElementById('locate-container');
-        const dragZone = document.getElementById('drag-zone');
-        const parkingList = document.getElementById('parking-list');
-        
-        let isDragging = false, startY = 0, currentTranslate = 0, startTranslate = 0;
-        let vh = window.innerHeight;
-        let SNAPS = { EXPANDED: 0, HALF: vh * 0.40, COLLAPSED: vh * 0.72 };
-
-        function showStatus(message, type = 'info') {
-            const existing = document.getElementById('crgo-status');
-            if (existing) existing.remove();
-            const status = document.createElement('div');
-            status.id = 'crgo-status';
-            status.className = `fixed top-5 left-1/2 -translate-x-1/2 z-[4000] max-w-[calc(100%-2rem)] rounded-2xl px-4 py-3 text-center text-sm font-bold shadow-xl backdrop-blur-md ${
-                type === 'error' ? 'bg-red-600/95 text-white' : 'bg-gray-900/90 text-white'
-            }`;
-            status.setAttribute('role', 'status');
-            status.textContent = message;
-            document.body.appendChild(status);
-            window.setTimeout(() => status.remove(), type === 'error' ? 5000 : 3000);
-        }
-
-        window.toggleSidebar = function() {
-            document.getElementById('sidebar').classList.toggle('open');
-            document.getElementById('sidebar-overlay').classList.toggle('open');
-        }
-
-        function updateSheetPosition(translateY, animate = false) {
-            currentTranslate = translateY;
-            sheet.style.transition = animate ? 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)' : 'none';
-            locateContainer.style.transition = animate ? 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)' : 'none';
-            sheet.style.transform = `translateY(${currentTranslate}px)`;
-            locateContainer.style.bottom = `${(vh * 0.85) - currentTranslate + 12}px`;
-        }
-        
-        window.addEventListener('resize', () => {
-            vh = window.innerHeight;
-            SNAPS = { EXPANDED: 0, HALF: vh * 0.40, COLLAPSED: vh * 0.72 };
-            updateSheetPosition(SNAPS.HALF, true);
-        });
-
-        function handleDragStart(e) {
-            if (e.target.closest('button')) return;
-            isDragging = true;
-            startY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
-            startTranslate = currentTranslate;
-            updateSheetPosition(startTranslate, false);
-        }
-
-        function handleDragMove(e) {
-            if (!isDragging) return;
-            if (e.cancelable) e.preventDefault();
-            const currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
-            let newTranslate = startTranslate + (currentY - startY);
-            if (newTranslate < 0) newTranslate *= 0.3;
-            if (newTranslate > SNAPS.COLLAPSED + 50) newTranslate = SNAPS.COLLAPSED + 50;
-            updateSheetPosition(newTranslate, false);
-        }
-
-        function handleDragEnd(e) {
-            if (!isDragging) return;
-            isDragging = false;
-            const currentY = e.type.includes('mouse') ? e.clientY : (e.changedTouches ? e.changedTouches[0].clientY : startY);
-            const deltaY = currentY - startY;
-            let targetTranslate = currentTranslate;
-            if (deltaY > 50) targetTranslate = SNAPS.COLLAPSED;
-            else if (deltaY < -50) targetTranslate = SNAPS.EXPANDED;
-            else targetTranslate = Object.values(SNAPS).reduce((p, c) => Math.abs(c - currentTranslate) < Math.abs(p - currentTranslate) ? c : p);
-            updateSheetPosition(targetTranslate, true);
-            if (targetTranslate === SNAPS.COLLAPSED) parkingList.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        dragZone.addEventListener('touchstart', handleDragStart, { passive: false });
-        window.addEventListener('touchmove', handleDragMove, { passive: false });
-        window.addEventListener('touchend', handleDragEnd);
-        dragZone.addEventListener('mousedown', handleDragStart);
-        window.addEventListener('mousemove', handleDragMove);
-        window.addEventListener('mouseup', handleDragEnd);
-
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const p = 0.017453292519943295, c = Math.cos;
-            const a = 0.5 - c((lat2 - lat1) * p)/2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
-            return 12742 * Math.asin(Math.sqrt(a));
-        }
-
-        function initMap() {
-            if (map) {
-                map.invalidateSize();
-                return;
-            }
-            map = L.map('map', { zoomControl: false }).setView(userLocation, 13);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 20,
-                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-            }).addTo(map);
-            markerLayerGroup = L.layerGroup().addTo(map);
-
-            const userIcon = L.divIcon({
-                className: '',
-                html: `<div class="relative flex items-center justify-center w-6 h-6"><div class="absolute w-full h-full bg-blue-500 rounded-full animate-ping opacity-75"></div><div class="relative w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md"></div></div>`,
-                iconSize: [24, 24], iconAnchor: [12, 12]
-            });
-            userMarker = L.marker(userLocation, { icon: userIcon }).addTo(map);
-
-            updateSheetPosition(SNAPS.HALF, false);
-            renderMarkers();
-            renderParkingList();
-
-            setTimeout(() => {
-                if (map) map.invalidateSize();
-            }, 300);
-        }
-
-        window.locateUser = function() {
-            if (!map) return;
-            const icon = document.getElementById('locate-icon');
-            if (icon) icon.classList.add('text-blue-600');
-
-            const finishLocate = () => {
-                if (icon) setTimeout(() => icon.classList.remove('text-blue-600'), 1000);
-                updateSheetPosition(SNAPS.COLLAPSED, true);
-                parkingList.scrollTo({ top: 0, behavior: 'smooth' });
-                map.invalidateSize();
-            };
-
-            if (!navigator.geolocation) {
-                showStatus('Location is unavailable; showing the CRGO demo area.', 'error');
-                map.flyTo(userLocation, 18, { animate: true, duration: 1.0 });
-                finishLocate();
-                return;
-            }
-
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    userLocation = [position.coords.latitude, position.coords.longitude];
-                    userMarker?.setLatLng(userLocation);
-                    map.flyTo(userLocation, 18, { animate: true, duration: 1.0 });
-                    renderParkingList();
-                    finishLocate();
-                },
-                () => {
-                    showStatus('We could not access your location; showing the CRGO demo area.', 'error');
-                    map.flyTo(userLocation, 18, { animate: true, duration: 1.0 });
-                    finishLocate();
-                },
-                { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-            );
-        }
-
-        window.setFilter = function(category) {
-            currentFilter = category;
-            const filters = [{ id: 'all', icon: 'ph-squares-four' }, { id: 'parking', icon: 'ph-car-profile' }, { id: 'ev', icon: 'ph-lightning' }];
-            filters.forEach(f => {
-                const btn = document.getElementById(`btn-${f.id}`);
-                if (f.id === category) {
-                    btn.className = 'bg-rapido text-black px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap shadow-md flex items-center gap-2.5 transition-all transform active:scale-95 cursor-pointer';
-                } else {
-                    btn.className = 'glass-card text-gray-800 px-5 py-2.5 rounded-2xl font-bold text-sm whitespace-nowrap flex items-center gap-2.5 transition-all border border-white/80 shadow-sm hover:bg-white/90 transform active:scale-95 cursor-pointer';
-                }
-            });
-            renderMarkers();
-            renderParkingList();
-        }
-
-        window.filterBySearch = function(query) {
-            searchQuery = query.toLowerCase();
-            renderMarkers();
-            renderParkingList();
-        }
-
-        function renderMarkers() {
-            if (!map) return;
-            markerLayerGroup.clearLayers();
-            markers = {};
-
-            const filteredData = parkingData.filter(spot => {
-                const matchesCategory = currentFilter === 'all' || (currentFilter === 'ev' ? spot.hasEV : (spot.category === 'parking' || spot.isCloudHub));
-                const matchesSearch = spot.name.toLowerCase().includes(searchQuery);
-                return matchesCategory && matchesSearch;
-            });
-
-            filteredData.forEach(spot => {
-                let markerContent = '<i class="ph-fill ph-car-profile text-lg"></i>';
-                let extraClass = '', pulseClass = spot.spots <= 4 ? 'pulse-ring' : '';
-                if (spot.isCloudHub) { markerContent = '<i class="ph-bold ph-stack text-lg text-white"></i>'; extraClass = 'marker-cloud'; } 
-                else if (spot.hasEV) { markerContent = '<div class="flex items-center gap-0.5"><i class="ph-fill ph-car text-xs"></i><i class="ph-fill ph-lightning text-xs text-yellow-300"></i></div>'; extraClass = 'marker-ev-combo'; }
-
-                const icon = L.divIcon({ className: '', html: `<div id="marker-${spot.id}" class="custom-marker ${extraClass} ${pulseClass}">${markerContent}</div>`, iconSize: [38, 38], iconAnchor: [19, 19] });
-                const marker = L.marker([spot.lat, spot.lng], { icon: icon }).addTo(markerLayerGroup);
-                marker.on('click', () => handleSelection(spot.id));
-                markers[spot.id] = marker;
-            });
-        }
-
-        function renderParkingList() {
-            parkingList.innerHTML = '';
-            const filteredData = parkingData.filter(spot => {
-                const matchesCategory = currentFilter === 'all' || (currentFilter === 'ev' ? spot.hasEV : (spot.category === 'parking' || spot.isCloudHub));
-                const matchesSearch = spot.name.toLowerCase().includes(searchQuery);
-                return matchesCategory && matchesSearch;
-            });
-
-            filteredData.forEach(spot => { spot.calculatedDist = calculateDistance(userLocation[0], userLocation[1], spot.lat, spot.lng); });
-            filteredData.sort((a, b) => a.calculatedDist - b.calculatedDist);
-
-            filteredData.forEach(spot => {
-                const card = document.createElement('div');
-                card.id = `card-${spot.id}`;
-                const distStr = spot.calculatedDist < 1 ? `${Math.round(spot.calculatedDist * 1000)} m` : `${spot.calculatedDist.toFixed(1)} km`;
-                
-                if (spot.isCloudHub) {
-                    card.className = 'glass-card rounded-[28px] p-5 cursor-pointer flex flex-col gap-3 relative overflow-hidden border border-purple-400/50 bg-gradient-to-br from-white/95 to-purple-50/90 shadow-md';
-                    card.innerHTML = `
-                        <div class="flex justify-between items-start w-full">
-                            <div class="flex gap-4">
-                                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shrink-0 border border-white/30">
-                                    <i class="ph-fill ph-stack text-3xl text-white"></i>
-                                </div>
-                                <div class="flex flex-col">
-                                    <div class="text-[10px] font-black uppercase tracking-widest text-purple-600 mb-0.5 opacity-90">Universal Dark Garage Mesh</div>
-                                    <h3 class="font-extrabold text-gray-900 text-[18px] leading-tight tracking-tight">${spot.name}</h3>
-                                    <span class="text-sm font-bold text-gray-700 mt-1">${distStr} • ${spot.spots} spots available</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="flex gap-2 pt-2 border-t border-purple-100">
-                            <button onclick="event.stopPropagation(); handleSelection(${spot.id}); drawRoute(${spot.lat}, ${spot.lng});" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 cursor-pointer">
-                                <i class="ph-bold ph-navigation-arrow text-sm"></i> Navigate Here
-                            </button>
-                            <button onclick="event.stopPropagation(); showGlassModal('Book Dark Hub', '<p>Reserve your dedicated valet storage slot at <b>${spot.name}</b>.</p>', 'Confirm Booking');" class="flex-1 bg-gray-900 hover:bg-black text-white font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 cursor-pointer">
-                                <i class="ph-bold ph-ticket text-sm text-rapido"></i> Drop & Store
-                            </button>
-                        </div>`;
-                } else {
-                    card.className = 'glass-card rounded-[28px] p-5 cursor-pointer flex flex-col gap-3 relative overflow-hidden';
-                    card.innerHTML = `
-                        <div class="flex justify-between items-center w-full">
-                            <div class="flex items-center gap-4">
-                                <div class="w-16 h-16 rounded-2xl bg-white flex items-center justify-center shadow-md shrink-0 border border-gray-100">
-                                    <i class="ph-fill ph-car-profile text-3xl text-gray-800"></i>
-                                </div>
-                                <div class="flex flex-col">
-                                    <h3 class="font-extrabold text-gray-900 text-[18px] leading-tight tracking-tight">${spot.name}</h3>
-                                    <span class="text-sm font-bold text-gray-700 mt-1">${distStr} • ${spot.spots} spots</span>
-                                </div>
-                            </div>
-                            <div class="font-black text-xl text-gray-900">${spot.price}</div>
-                        </div>
-                        <div class="flex gap-2 pt-2 border-t border-gray-100">
-                            <button onclick="event.stopPropagation(); handleSelection(${spot.id}); drawRoute(${spot.lat}, ${spot.lng});" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer">
-                                <i class="ph-bold ph-navigation-arrow text-sm text-blue-600"></i> Navigate
-                            </button>
-                            <button onclick="event.stopPropagation(); showGlassModal('Book Parking Spot', '<p>Instant slot booking at <b>${spot.name}</b> for <b>${spot.price}</b>.</p>', 'Book Now');" class="flex-1 bg-rapido hover:bg-yellow-500 text-black font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 cursor-pointer">
-                                <i class="ph-bold ph-check-circle text-sm"></i> Book Spot
-                            </button>
-                        </div>`;
-                }
-                card.addEventListener('click', () => handleSelection(spot.id));
-                parkingList.appendChild(card);
-            });
-        }
-
-        function handleSelection(id) {
-            const spot = parkingData.find(s => s.id === id);
-            if (!spot) return;
-            if (map) {
-                map.flyTo([spot.lat, spot.lng], 16, { animate: true, duration: 1 });
-                map.invalidateSize();
-            }
-            drawRoute(spot.lat, spot.lng);
-            document.querySelectorAll('.custom-marker').forEach(m => m.classList.remove('active-marker'));
-            const activeMarker = document.getElementById(`marker-${id}`);
-            if (activeMarker) activeMarker.classList.add('active-marker');
-            document.querySelectorAll('.glass-card').forEach(c => c.classList.remove('active'));
-            const activeCard = document.getElementById(`card-${id}`);
-            if (activeCard) {
-                activeCard.classList.add('active');
-                const offset = activeCard.offsetTop - parkingList.offsetTop;
-                parkingList.scrollTo({ top: offset, behavior: 'smooth' });
-            }
-        }
-
-        async function drawRoute(lat, lng) {
-            if (currentRouteLine && map) map.removeLayer(currentRouteLine);
-            const requestId = ++routeRequestId;
-            const fallbackLatlngs = [userLocation, [(userLocation[0] + lat) / 2 + 0.002, (userLocation[1] + lng) / 2 - 0.002], [lat, lng]];
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-            try {
-                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${userLocation[1]},${userLocation[0]};${lng},${lat}?overview=full&geometries=geojson`, {
-                    signal: controller.signal,
-                    headers: { 'Accept': 'application/json' }
-                });
-                if (!res.ok) throw new Error(`OSRM returned HTTP ${res.status}`);
-                const data = await res.json();
-                if (requestId !== routeRequestId) return;
-                if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates?.length > 1 && map) {
-                    currentRouteLine = L.polyline(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), { color: '#212121', weight: 6, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(map);
-                    return;
-                }
-                throw new Error('OSRM returned no usable route');
-            } catch (error) {
-                if (requestId !== routeRequestId) return;
-                if (map) {
-                    currentRouteLine = L.polyline(fallbackLatlngs, { color: '#212121', weight: 5, dashArray: '8, 12' }).addTo(map);
-                }
-                showStatus('Live routing is unavailable; showing an approximate path.', 'error');
-                console.error('Route lookup failed:', error);
-            } finally {
-                clearTimeout(timeoutId);
-            }
-        }
-
-        window.showCRGOValetModal = function() {
-            showGlassModal("CRGO Valet Mesh Drive", "<p>Our automated dispatch assigns a verified driver to your pin to store your vehicle in the nearest road-connected dark garage.</p>", "Request Valet");
-        }
-
-        window.showGlassModal = function(title, message, confirmText = 'Confirm') {
-            const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 z-[5000] flex items-center justify-center px-4 bg-gray-900/40 backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-auto';
-            modal.innerHTML = `
-                <div class="glass-panel w-full max-w-sm rounded-[32px] p-7 shadow-2xl transform scale-95 transition-transform duration-300 border border-white/60 bg-white/90">
-                    <div class="w-14 h-14 rounded-full bg-rapido flex items-center justify-center mb-5 mx-auto shadow-lg border-4 border-white"><i class="ph-fill ph-check-circle text-3xl text-black"></i></div>
-                    <h3 class="text-2xl font-extrabold text-center text-gray-900 mb-3 tracking-tight">${title}</h3>
-                    <div class="text-center text-gray-600 mb-8 font-medium leading-relaxed">${message}</div>
-                    <div class="flex gap-3">
-                        <button id="modal-cancel" class="flex-1 py-3.5 rounded-2xl font-bold text-gray-700 bg-white/80 hover:bg-white shadow-sm border border-gray-200 transition-all cursor-pointer">Cancel</button>
-                        <button id="modal-confirm" class="flex-1 py-3.5 rounded-2xl font-bold text-black bg-rapido shadow-lg hover:scale-105 transition-all cursor-pointer">${confirmText}</button>
+          ) : (
+            <div className="space-y-8 pb-10">
+              {messages.map((msg, idx) => (
+                <div key={msg.id} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  
+                  {msg.role === 'model' && (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#4285f4] to-[#d96570] flex items-center justify-center shrink-0 mr-4 mt-1 shadow-sm">
+                      <Sparkles size={16} className="text-white" />
                     </div>
-                </div>`;
-            document.body.appendChild(modal);
-            requestAnimationFrame(() => { modal.classList.remove('opacity-0'); modal.querySelector('.glass-panel').classList.remove('scale-95'); modal.querySelector('.glass-panel').classList.add('scale-100'); });
-            const close = () => { modal.classList.add('opacity-0'); setTimeout(() => modal.remove(), 300); };
-            modal.querySelector('#modal-cancel').onclick = close;
-            modal.querySelector('#modal-confirm').onclick = () => {
-                showStatus('Booking request registered successfully on the CRGO Mesh Network!', 'info');
-                close();
-            };
-        }
-    </script>
-</body>
-</html>
+                  )}
+
+                  <div className={`max-w-[85%] ${msg.role === 'user' ? 'bg-[#282a2c] text-white rounded-3xl rounded-tr-sm px-5 py-3.5 shadow-md border border-gray-700/50' : 'text-gray-200'}`}>
+                    
+                    {msg.role === 'user' && (
+                      <div className="flex flex-col gap-3">
+                        {msg.attachedImage && (
+                          <div className="relative rounded-xl overflow-hidden max-w-xs border border-gray-700 shadow-sm group">
+                            <img src={msg.attachedImage} alt="User upload" className="w-full h-auto object-cover" />
+                            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm text-xs px-2 py-1 rounded text-white font-medium">Raw Input</div>
+                          </div>
+                        )}
+                        {msg.text && <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>}
+                      </div>
+                    )}
+
+                    {msg.type === 'loading' && (
+                      <div className="flex items-center gap-4 text-gray-400 py-3 px-2">
+                        <Loader2 size={22} className="animate-spin text-blue-400" />
+                        <span className="animate-pulse text-sm font-medium tracking-wide">Processing premium studio enhancements...</span>
+                      </div>
+                    )}
+
+                    {msg.type === 'error' && (
+                      <div className="bg-red-950/40 text-red-300 border border-red-800/50 rounded-2xl p-4 flex gap-3 mt-2">
+                        <X size={20} className="shrink-0 mt-0.5 text-red-400" />
+                        <p className="text-sm font-medium">{msg.text}</p>
+                      </div>
+                    )}
+
+                    {msg.type === 'result' && (
+                      <div className="flex flex-col gap-4">
+                        {msg.text && <p className="text-gray-400 text-sm italic">{msg.text}</p>}
+                        
+                        {msg.image && (
+                          <div className="group relative rounded-2xl overflow-hidden border border-gray-700 bg-[#1e1f20] w-max max-w-full inline-block shadow-2xl">
+                            <img 
+                              src={msg.image} 
+                              alt="AI Studio Output" 
+                              className="max-w-full h-auto max-h-[650px] object-contain block"
+                            />
+                            
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+                              <div className="flex justify-between items-end w-full">
+                                <span className="text-white/80 text-xs font-medium bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full">Pro Studio Edit</span>
+                                <button 
+                                  onClick={() => handleDownload(msg.image, idx)}
+                                  className="bg-white hover:bg-gray-200 text-black p-3 rounded-full shadow-2xl transform transition-transform hover:scale-105"
+                                  title="Download High-Res"
+                                >
+                                  <Download size={20} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        {/* Floating Input Area */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 lg:p-6 bg-gradient-to-t from-[#131314] via-[#131314] to-transparent pt-12 pb-6">
+          <div className="max-w-4xl mx-auto relative">
+            
+            {attachedImage && (
+              <div className="absolute -top-24 left-4 mb-3 flex gap-2">
+                <div className="relative group rounded-xl overflow-hidden border-2 border-blue-500/50 bg-[#282a2c] w-20 h-20 shadow-xl shadow-blue-900/20">
+                  <img src={attachedImage} alt="Attachment" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <button 
+                      onClick={removeAttachedImage}
+                      className="bg-red-500 hover:bg-red-600 rounded-full p-1.5 transform transition-transform hover:scale-110"
+                    >
+                      <X size={16} className="text-white" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Top Toolbar */}
+            <div className="flex gap-2 mb-3 px-2 justify-end items-center w-full">
+              <button
+                onClick={() => setUseStudioStyle(!useStudioStyle)}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold tracking-wide flex items-center gap-2 transition-all border shadow-sm ${
+                  useStudioStyle 
+                  ? 'bg-gradient-to-r from-orange-500/20 to-pink-500/20 text-orange-400 border-orange-500/40' 
+                  : 'bg-transparent text-gray-500 border-gray-700 hover:text-gray-300 hover:bg-gray-800'
+                }`}
+                title="Apply Professional Studio Photoshoot Style to uploads"
+              >
+                <Sparkles size={14} className={useStudioStyle ? "text-orange-400" : ""} /> 
+                {useStudioStyle ? 'PRO STUDIO: ON' : 'PRO STUDIO: OFF'}
+              </button>
+            </div>
+
+            <div className="bg-[#1e1f20] rounded-[32px] border border-gray-700 shadow-2xl focus-within:bg-[#282a2c] focus-within:border-gray-600 transition-colors flex items-end p-2 relative">
+              
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleImageUpload} 
+                accept="image/*" 
+                className="hidden" 
+              />
+              
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="p-3.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors shrink-0 mb-0.5"
+                title="Upload image for editing"
+              >
+                <ImagePlus size={22} />
+              </button>
+
+              <textarea
+                ref={textareaRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={attachedImage ? "Describe any specific edits (or leave blank for auto studio edit)..." : "Describe the image you want to generate..."}
+                className="flex-1 max-h-[200px] bg-transparent text-gray-100 placeholder-gray-500 px-3 py-4 focus:outline-none resize-none min-h-[56px] text-[15px]"
+                rows={1}
+              />
+
+              {inputValue.trim() && (
+                <button
+                  onClick={handleEnhancePrompt}
+                  disabled={isEnhancing}
+                  className="p-3 text-purple-400 hover:text-purple-300 hover:bg-purple-400/10 rounded-full transition-colors shrink-0 mb-0.5"
+                  title="Enhance prompt with AI"
+                >
+                  {isEnhancing ? <Loader2 size={20} className="animate-spin" /> : <Wand2 size={20} />}
+                </button>
+              )}
+
+              <button 
+                onClick={handleSubmit}
+                disabled={(!inputValue.trim() && !attachedImage && !useStudioStyle) || isGenerating}
+                className={`p-3.5 rounded-full mb-0.5 shrink-0 transition-all shadow-md ${
+                  (inputValue.trim() || attachedImage || useStudioStyle) && !isGenerating
+                    ? 'text-white bg-blue-600 hover:bg-blue-500 cursor-pointer shadow-blue-900/40' 
+                    : 'text-gray-600 cursor-not-allowed bg-[#282a2c] shadow-none'
+                }`}
+              >
+                {isGenerating ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} className={(inputValue.trim() || attachedImage || useStudioStyle) ? 'ml-0.5' : ''}/>}
+              </button>
+            </div>
+            
+            <p className="text-center text-xs text-gray-500 mt-4 font-medium tracking-wide">
+              Shree Kala Kendra Studio — Powered by Gemini 2.5 Flash Image & Imagen 4
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
